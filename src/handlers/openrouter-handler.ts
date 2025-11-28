@@ -1,5 +1,7 @@
 import type { Context } from "hono";
 import { writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ModelHandler } from "./types.js";
 import { AdapterManager } from "../adapters/adapter-manager.js";
 import { MiddlewareManager, GeminiThoughtSignatureMiddleware } from "../middleware/index.js";
@@ -61,7 +63,7 @@ export class OpenRouterHandler implements ModelHandler {
               context_left_percent: leftPct,
               updated_at: Date.now()
           };
-          writeFileSync(`/tmp/claudish-tokens-${this.port}.json`, JSON.stringify(data), "utf-8");
+          writeFileSync(join(tmpdir(), `claudish-tokens-${this.port}.json`), JSON.stringify(data), "utf-8");
       } catch (e) {}
   }
 

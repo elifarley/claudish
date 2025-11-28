@@ -1,10 +1,70 @@
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 import { writeFileSync, unlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { tmpdir, platform } from "node:os";
+import { join, basename } from "node:path";
 import { ENV } from "./config.js";
 import type { ClaudishConfig } from "./types.js";
+
+const isWindows = platform() === "win32";
+
+/**
+ * Create a cross-platform Node.js script for status line
+ * This replaces the bash script to work on Windows
+ */
+function createStatusLineScript(tokenFilePath: string): string {
+  const tempDir = tmpdir();
+  const timestamp = Date.now();
+  const scriptPath = join(tempDir, `claudish-status-${timestamp}.js`);
+
+  // Escape backslashes for Windows paths in the script
+  const escapedTokenPath = tokenFilePath.replace(/\\/g, "\\\\");
+
+  const script = `
+const fs = require('fs');
+const path = require('path');
+
+const CYAN = "\\x1b[96m";
+const YELLOW = "\\x1b[93m";
+const GREEN = "\\x1b[92m";
+const MAGENTA = "\\x1b[95m";
+const DIM = "\\x1b[2m";
+const RESET = "\\x1b[0m";
+const BOLD = "\\x1b[1m";
+
+let input = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => input += chunk);
+process.stdin.on('end', () => {
+  try {
+    let dir = path.basename(process.cwd());
+    if (dir.length > 15) dir = dir.substring(0, 12) + '...';
+
+    let ctx = 100, cost = 0;
+    const model = process.env.CLAUDISH_ACTIVE_MODEL_NAME || 'unknown';
+
+    try {
+      const tokens = JSON.parse(fs.readFileSync('${escapedTokenPath}', 'utf-8'));
+      cost = tokens.total_cost || 0;
+      ctx = tokens.context_left_percent || 100;
+    } catch (e) {
+      try {
+        const json = JSON.parse(input);
+        cost = json.total_cost_usd || 0;
+      } catch {}
+    }
+
+    const costStr = cost.toFixed(3);
+    console.log(\`\${CYAN}\${BOLD}\${dir}\${RESET} \${DIM}•\${RESET} \${YELLOW}\${model}\${RESET} \${DIM}•\${RESET} \${GREEN}$\${costStr}\${RESET} \${DIM}•\${RESET} \${MAGENTA}\${ctx}%\${RESET}\`);
+  } catch (e) {
+    console.log('claudish');
+  }
+});
+`;
+
+  writeFileSync(scriptPath, script, "utf-8");
+  return scriptPath;
+}
 
 /**
  * Create a temporary settings file with custom status line for this instance
@@ -16,32 +76,33 @@ function createTempSettingsFile(modelDisplay: string, port: string): string {
   const timestamp = Date.now();
   const tempPath = join(tempDir, `claudish-settings-${timestamp}.json`);
 
-  // ANSI color codes for visual enhancement
-  // Claude Code supports ANSI colors in status line output
-  const CYAN = "\\033[96m";      // Bright cyan for directory (easy to read)
-  const YELLOW = "\\033[93m";    // Bright yellow for model (highlights it's special)
-  const GREEN = "\\033[92m";     // Bright green for cost (money = green)
-  const MAGENTA = "\\033[95m";   // Bright magenta for context (attention-grabbing)
-  const DIM = "\\033[2m";        // Dim for separator
-  const RESET = "\\033[0m";      // Reset colors
-  const BOLD = "\\033[1m";       // Bold text
+  // Token file path (cross-platform)
+  const tokenFilePath = join(tempDir, `claudish-tokens-${port}.json`);
 
-  // Create ultra-compact status line optimized for thinking mode + cost + context tracking
-  // Critical info: directory, model (actual OpenRouter ID), cost, context remaining
-  // - Directory: where you are (truncated to 15 chars)
-  // - Model: actual OpenRouter model ID
-  // - Cost: real-time session cost from OpenRouter (via proxy)
-  // - Context: percentage remaining (calculated dynamically by proxy using real API limits)
-  //
-  // CONTEXT TRACKING FIX: Read pre-calculated values from file written by proxy
-  // Proxy fetches real context limit from OpenRouter API and writes percentage to file
-  // File path: /tmp/claudish-tokens-{PORT}.json
-  const tokenFilePath = `/tmp/claudish-tokens-${port}.json`;
+  let statusCommand: string;
+
+  if (isWindows) {
+    // Windows: Use Node.js script for cross-platform compatibility
+    const scriptPath = createStatusLineScript(tokenFilePath);
+    statusCommand = `node "${scriptPath}"`;
+  } else {
+    // Unix: Use optimized bash script
+    // ANSI color codes for visual enhancement
+    const CYAN = "\\033[96m";
+    const YELLOW = "\\033[93m";
+    const GREEN = "\\033[92m";
+    const MAGENTA = "\\033[95m";
+    const DIM = "\\033[2m";
+    const RESET = "\\033[0m";
+    const BOLD = "\\033[1m";
+
+    statusCommand = `JSON=$(cat) && DIR=$(basename "$(pwd)") && [ \${#DIR} -gt 15 ] && DIR="\${DIR:0:12}..." || true && CTX=100 && COST="0" && if [ -f "${tokenFilePath}" ]; then TOKENS=$(cat "${tokenFilePath}" 2>/dev/null) && REAL_COST=$(echo "$TOKENS" | grep -o '"total_cost":[0-9.]*' | cut -d: -f2) && REAL_CTX=$(echo "$TOKENS" | grep -o '"context_left_percent":[0-9]*' | grep -o '[0-9]*') && if [ ! -z "$REAL_COST" ]; then COST="$REAL_COST"; else COST=$(echo "$JSON" | grep -o '"total_cost_usd":[0-9.]*' | cut -d: -f2); fi && if [ ! -z "$REAL_CTX" ]; then CTX="$REAL_CTX"; fi; else COST=$(echo "$JSON" | grep -o '"total_cost_usd":[0-9.]*' | cut -d: -f2); fi && [ -z "$COST" ] && COST="0" || true && printf "${CYAN}${BOLD}%s${RESET} ${DIM}•${RESET} ${YELLOW}%s${RESET} ${DIM}•${RESET} ${GREEN}\\$%.3f${RESET} ${DIM}•${RESET} ${MAGENTA}%s%%${RESET}\\n" "$DIR" "$CLAUDISH_ACTIVE_MODEL_NAME" "$COST" "$CTX"`;
+  }
 
   const settings = {
     statusLine: {
       type: "command",
-      command: `JSON=$(cat) && DIR=$(basename "$(pwd)") && [ \${#DIR} -gt 15 ] && DIR="\${DIR:0:12}..." || true && CTX=100 && COST="0" && if [ -f "${tokenFilePath}" ]; then TOKENS=$(cat "${tokenFilePath}" 2>/dev/null) && REAL_COST=$(echo "$TOKENS" | grep -o '"total_cost":[0-9.]*' | cut -d: -f2) && REAL_CTX=$(echo "$TOKENS" | grep -o '"context_left_percent":[0-9]*' | grep -o '[0-9]*') && if [ ! -z "$REAL_COST" ]; then COST="$REAL_COST"; else COST=$(echo "$JSON" | grep -o '"total_cost_usd":[0-9.]*' | cut -d: -f2); fi && if [ ! -z "$REAL_CTX" ]; then CTX="$REAL_CTX"; fi; else COST=$(echo "$JSON" | grep -o '"total_cost_usd":[0-9.]*' | cut -d: -f2); fi && [ -z "$COST" ] && COST="0" || true && printf "${CYAN}${BOLD}%s${RESET} ${DIM}•${RESET} ${YELLOW}%s${RESET} ${DIM}•${RESET} ${GREEN}\\$%.3f${RESET} ${DIM}•${RESET} ${MAGENTA}%s%%${RESET}\\n" "$DIR" "$CLAUDISH_ACTIVE_MODEL_NAME" "$COST" "$CTX"`,
+      command: statusCommand,
       padding: 0,
     },
   };
@@ -153,9 +214,11 @@ export async function runClaudeWithProxy(
   }
 
   // Spawn claude CLI process using Node.js child_process (works on both Node.js and Bun)
+  // Windows needs shell: true to find .cmd/.bat files like claude.cmd
   const proc = spawn("claude", claudeArgs, {
     env,
     stdio: "inherit", // Stream stdin/stdout/stderr to parent
+    shell: isWindows,
   });
 
   // Handle process termination signals (includes cleanup)
@@ -182,7 +245,11 @@ export async function runClaudeWithProxy(
  * Setup signal handlers to gracefully shutdown
  */
 function setupSignalHandlers(proc: ChildProcess, tempSettingsPath: string, quiet: boolean): void {
-  const signals: NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGHUP"];
+  // Windows only supports SIGINT and SIGTERM reliably
+  // SIGHUP doesn't exist on Windows
+  const signals: NodeJS.Signals[] = isWindows
+    ? ["SIGINT", "SIGTERM"]
+    : ["SIGINT", "SIGTERM", "SIGHUP"];
 
   for (const signal of signals) {
     process.on(signal, () => {
@@ -206,8 +273,12 @@ function setupSignalHandlers(proc: ChildProcess, tempSettingsPath: string, quiet
  */
 export async function checkClaudeInstalled(): Promise<boolean> {
   try {
-    const proc = spawn("which", ["claude"], {
+    const isWindows = process.platform === "win32";
+    const command = isWindows ? "where" : "which";
+
+    const proc = spawn(command, ["claude"], {
       stdio: "ignore",
+      shell: isWindows, // Windows needs shell for 'where' command
     });
 
     const exitCode = await new Promise<number>((resolve) => {

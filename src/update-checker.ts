@@ -9,7 +9,9 @@ import { execSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir, homedir } from "node:os";
+import { tmpdir, homedir, platform } from "node:os";
+
+const isWindows = platform() === "win32";
 
 const NPM_REGISTRY_URL = "https://registry.npmjs.org/claudish/latest";
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -21,10 +23,22 @@ interface UpdateCache {
 
 /**
  * Get cache file path
+ * Uses platform-appropriate cache directory:
+ * - Windows: %LOCALAPPDATA%\claudish or %USERPROFILE%\AppData\Local\claudish
+ * - Unix/macOS: ~/.cache/claudish
  */
 function getCacheFilePath(): string {
-  // Try to use ~/.cache/claudish, fall back to temp directory
-  const cacheDir = join(homedir(), ".cache", "claudish");
+  let cacheDir: string;
+
+  if (isWindows) {
+    // Windows: Use LOCALAPPDATA or fall back to AppData\Local
+    const localAppData = process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local");
+    cacheDir = join(localAppData, "claudish");
+  } else {
+    // Unix/macOS: Use ~/.cache/claudish
+    cacheDir = join(homedir(), ".cache", "claudish");
+  }
+
   try {
     if (!existsSync(cacheDir)) {
       mkdirSync(cacheDir, { recursive: true });
@@ -159,10 +173,12 @@ function runUpdate(): boolean {
   try {
     console.error("\n[claudish] Updating...\n");
 
-    // Use spawn for better output handling
+    // Use execSync with shell: true for cross-platform compatibility
+    // Windows needs shell to find npm.cmd
     const result = execSync("npm install -g claudish@latest", {
       stdio: "inherit",
       encoding: "utf-8",
+      shell: true,
     });
 
     console.error("\n[claudish] Update complete! Please restart claudish.\n");

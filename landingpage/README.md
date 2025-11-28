@@ -1,10 +1,10 @@
 # Claudish Landing Page
 
-The marketing site for [Claudish](https://github.com/MadAppGang/claude-code/tree/main/mcp/claudish) — the tool that lets you run Claude Code with any model.
+The marketing site for [Claudish](https://github.com/MadAppGang/claudish) - run Claude Code with any AI model via OpenRouter.
 
-Built with Claudish itself. Opus 4.5 and Gemini 3.0 Pro working together in a single session. Practicing what we preach.
+Built with Claudish itself: Opus 4.5 and Gemini 3.0 Pro collaborating in a single session.
 
-## Run it
+## Development
 
 ```bash
 pnpm install
@@ -13,13 +13,13 @@ pnpm dev
 
 Opens at `localhost:3000`.
 
-## Deploy it
+## Deploy
 
 ```bash
 pnpm firebase:deploy
 ```
 
-Builds and ships to Firebase Hosting in one command.
+Builds and deploys to Firebase Hosting.
 
 ## Stack
 

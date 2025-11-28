@@ -10,8 +10,8 @@ const App: React.FC = () => {
       <nav className="fixed top-0 left-0 right-0 z-50 bg-[#0f0f0f]/90 border-b border-white/5 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-end">
             <div className="flex items-center gap-6 text-xs md:text-sm font-mono text-gray-400">
-                <a href="https://github.com/MadAppGang/claude-code/blob/main/mcp/claudish/docs/index.md" target="_blank" rel="noreferrer" className="hover:text-white transition-colors">Documentation</a>
-                <a href="https://github.com/MadAppGang/claude-code/tree/main/mcp/claudish" target="_blank" rel="noreferrer" className="hover:text-white transition-colors">GitHub</a>
+                <a href="https://github.com/MadAppGang/claudish/blob/main/docs/index.md" target="_blank" rel="noreferrer" className="hover:text-white transition-colors">Documentation</a>
+                <a href="https://github.com/MadAppGang/claudish" target="_blank" rel="noreferrer" className="hover:text-white transition-colors">GitHub</a>
             </div>
         </div>
       </nav>
@@ -58,8 +58,8 @@ const App: React.FC = () => {
                 
                 {/* Links */}
                 <div className="flex flex-wrap justify-center gap-6 md:gap-8 text-xs md:text-sm font-mono text-gray-400 font-medium mb-8">
-                    <a href="https://github.com/MadAppGang/claude-code/blob/main/mcp/claudish/docs/index.md" target="_blank" rel="noreferrer" className="hover:text-claude-ish transition-colors">Documentation</a>
-                    <a href="https://github.com/MadAppGang/claude-code/tree/main/mcp/claudish" target="_blank" rel="noreferrer" className="hover:text-claude-ish transition-colors">GitHub</a>
+                    <a href="https://github.com/MadAppGang/claudish/blob/main/docs/index.md" target="_blank" rel="noreferrer" className="hover:text-claude-ish transition-colors">Documentation</a>
+                    <a href="https://github.com/MadAppGang/claudish" target="_blank" rel="noreferrer" className="hover:text-claude-ish transition-colors">GitHub</a>
                     <a href="https://openrouter.ai/" target="_blank" rel="noreferrer" className="hover:text-claude-ish transition-colors">OpenRouter</a>
                     <a href="https://x.com/jackrudenko" target="_blank" rel="noreferrer" className="hover:text-claude-ish transition-colors">Twitter</a>
                     <a href="https://madappgang.com" target="_blank" rel="noreferrer" className="hover:text-claude-ish transition-colors">MadAppGang</a>

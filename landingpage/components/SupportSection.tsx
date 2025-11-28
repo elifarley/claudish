@@ -36,7 +36,7 @@ const SupportSection: React.FC = () => {
               {/* Right: Action */}
               <div className="shrink-0">
                 <a
-                  href="https://github.com/MadAppGang/claude-code"
+                  href="https://github.com/MadAppGang/claudish"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-3 px-5 py-3 bg-[#161616] border border-gray-700 hover:border-claude-ish/50 text-gray-300 hover:text-white font-mono text-sm transition-all group"

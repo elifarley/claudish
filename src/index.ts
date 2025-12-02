@@ -119,7 +119,11 @@ async function runCli() {
     const proxy = await createProxyServer(
       port,
       cliConfig.monitor ? undefined : cliConfig.openrouterApiKey!,
-      cliConfig.monitor ? undefined : (typeof cliConfig.model === "string" ? cliConfig.model : undefined),
+      cliConfig.monitor
+        ? undefined
+        : typeof cliConfig.model === "string"
+          ? cliConfig.model
+          : undefined,
       cliConfig.monitor,
       cliConfig.anthropicApiKey,
       {

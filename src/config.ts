@@ -53,7 +53,7 @@ export const MODEL_INFO: Record<
     priority: 8,
     provider: "OpenRouter",
   },
-  "custom": {
+  custom: {
     name: "Custom Model",
     description: "Enter any OpenRouter model ID manually",
     priority: 999,

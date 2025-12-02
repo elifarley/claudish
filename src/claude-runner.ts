@@ -196,7 +196,9 @@ export async function runClaudeWithProxy(
   } else {
     // OpenRouter mode: Use placeholder to prevent Claude Code dialog
     // The proxy will handle authentication with OPENROUTER_API_KEY
-    env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "sk-ant-api03-placeholder-not-used-proxy-handles-auth-with-openrouter-key-xxxxxxxxxxxxxxxxxxxxx";
+    env.ANTHROPIC_API_KEY =
+      process.env.ANTHROPIC_API_KEY ||
+      "sk-ant-api03-placeholder-not-used-proxy-handles-auth-with-openrouter-key-xxxxxxxxxxxxxxxxxxxxx";
   }
 
   // Helper function to log messages (respects quiet flag)

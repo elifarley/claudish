@@ -2,10 +2,7 @@ import { BaseModelAdapter, AdapterResult } from "./base-adapter";
 import { log } from "../logger";
 
 export class QwenAdapter extends BaseModelAdapter {
-  processTextContent(
-    textContent: string,
-    accumulatedText: string
-  ): AdapterResult {
+  processTextContent(textContent: string, accumulatedText: string): AdapterResult {
     // Qwen models return standard content
     // However, some newer models might wrap thinking in <think> tags which we might want to handle
     // For now, we pass through as is, similar to OpenAI
@@ -27,7 +24,9 @@ export class QwenAdapter extends BaseModelAdapter {
       request.enable_thinking = true;
       request.thinking_budget = budget_tokens;
 
-      log(`[QwenAdapter] Mapped budget ${budget_tokens} -> enable_thinking: true, thinking_budget: ${budget_tokens}`);
+      log(
+        `[QwenAdapter] Mapped budget ${budget_tokens} -> enable_thinking: true, thinking_budget: ${budget_tokens}`
+      );
 
       // Cleanup: Remove raw thinking object
       delete request.thinking;

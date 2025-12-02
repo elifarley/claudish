@@ -1,8 +1,8 @@
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
-import { writeFileSync, unlinkSync } from "node:fs";
-import { tmpdir, platform } from "node:os";
-import { join, basename } from "node:path";
+import { unlinkSync, writeFileSync } from "node:fs";
+import { platform, tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import { ENV } from "./config.js";
 import type { ClaudishConfig } from "./types.js";
 

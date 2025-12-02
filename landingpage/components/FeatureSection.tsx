@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from "react";
+import type React from "react";
+import { useEffect, useState } from "react";
 import { HIGHLIGHT_FEATURES, STANDARD_FEATURES } from "../constants";
-import { TerminalWindow } from "./TerminalWindow";
-import { MultiModelAnimation } from "./MultiModelAnimation";
 import { BridgeDiagram } from "./BridgeDiagram";
+import { MultiModelAnimation } from "./MultiModelAnimation";
 import { SmartRouting } from "./SmartRouting";
+import { TerminalWindow } from "./TerminalWindow";
 
 const COMPARISON_ROWS = [
   { label: "Sub-agent context", others: "Lost", claudish: "Full inheritance" },

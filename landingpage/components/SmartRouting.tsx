@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
+import type React from "react";
+import { useEffect, useRef, useState } from "react";
 import { TerminalWindow } from "./TerminalWindow";
 import { TypingAnimation } from "./TypingAnimation";
 
@@ -31,7 +32,7 @@ export const SmartRouting: React.FC = () => {
       { step: 9, delay: 24000 }, // Pause before reset
     ];
 
-    let timeouts: ReturnType<typeof setTimeout>[] = [];
+    const timeouts: ReturnType<typeof setTimeout>[] = [];
 
     const runSequence = () => {
       setActionStep(0);

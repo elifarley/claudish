@@ -1,15 +1,15 @@
-import type {
-  ValidationResult,
-  ValidationReport,
-  ValidationIssue,
-  ValidationSuggestion,
-  ImprovementPlan,
-} from "./types.js";
-import type { BaseValidator } from "./validator.js";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Glob } from "mcp__claude-global-tools__glob";
 import { SeniorCodeReviewerValidationFormatter } from "./formatters.js";
+import type {
+  ImprovementPlan,
+  ValidationIssue,
+  ValidationReport,
+  ValidationResult,
+  ValidationSuggestion,
+} from "./types.js";
+import type { BaseValidator } from "./validator.js";
 
 export interface OrchestratorOptions {
   projectPath?: string;

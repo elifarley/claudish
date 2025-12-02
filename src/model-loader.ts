@@ -1,5 +1,5 @@
-import { readFileSync, existsSync, writeFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { OpenRouterModel } from "./types.js";
 
@@ -8,7 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // User preferences cache
-let _cachedUserModels: UserModelPreferences | null = null;
+const _cachedUserModels: UserModelPreferences | null = null;
 
 interface UserModelData {
   id: string;
@@ -197,10 +197,10 @@ export async function fetchModelContextWindow(modelId: string): Promise<number> 
       if (model && model.context) {
         // Parse "200K" -> 200000, "1M" -> 1000000
         const ctxStr = model.context.toUpperCase();
-        if (ctxStr.includes("K")) return parseFloat(ctxStr.replace("K", "")) * 1024; // Usually 1K=1000 or 1024? OpenRouter uses 1000 often but binary is standard. Let's use 1000 for simplicity or 1024.
+        if (ctxStr.includes("K")) return Number.parseFloat(ctxStr.replace("K", "")) * 1024; // Usually 1K=1000 or 1024? OpenRouter uses 1000 often but binary is standard. Let's use 1000 for simplicity or 1024.
         // Actually, standard is usually 1000 for LLM context "200k" = 200,000.
-        if (ctxStr.includes("M")) return parseFloat(ctxStr.replace("M", "")) * 1000000;
-        const val = parseInt(ctxStr);
+        if (ctxStr.includes("M")) return Number.parseFloat(ctxStr.replace("M", "")) * 1000000;
+        const val = Number.parseInt(ctxStr);
         if (!isNaN(val)) return val;
       }
     } catch (e) {}

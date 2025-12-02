@@ -1,6 +1,6 @@
-import React from "react";
-import HeroSection from "./components/HeroSection";
+import type React from "react";
 import FeatureSection from "./components/FeatureSection";
+import HeroSection from "./components/HeroSection";
 import SupportSection from "./components/SupportSection";
 
 const App: React.FC = () => {

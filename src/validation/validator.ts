@@ -1,4 +1,4 @@
-import type { ValidationReport, ValidationIssue, IssueSeverity } from "./types.js";
+import type { IssueSeverity, ValidationIssue, ValidationReport } from "./types.js";
 
 export enum ValidationCategory {
   MANDATORY = "mandatory",
@@ -16,7 +16,7 @@ export interface Validator {
 export abstract class BaseValidator implements Validator {
   protected projectPath: string;
 
-  constructor(projectPath: string = ".") {
+  constructor(projectPath = ".") {
     this.projectPath = projectPath;
   }
 

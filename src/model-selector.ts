@@ -4,12 +4,12 @@
  * Uses @inquirer/search for fuzzy search model selection
  */
 
-import { search, select, input, confirm } from "@inquirer/prompts";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { OpenRouterModel } from "./types.js";
+import { confirm, input, search, select } from "@inquirer/prompts";
 import { getAvailableModels } from "./model-loader.js";
+import type { OpenRouterModel } from "./types.js";
 
 // Get __dirname equivalent in ESM
 const __filename = fileURLToPath(import.meta.url);
@@ -127,8 +127,8 @@ async function fetchAllModels(forceUpdate = false): Promise<any[]> {
 function toModelInfo(model: any): ModelInfo {
   const provider = model.id.split("/")[0];
   const contextLen = model.context_length || model.top_provider?.context_length || 0;
-  const promptPrice = parseFloat(model.pricing?.prompt || "0");
-  const completionPrice = parseFloat(model.pricing?.completion || "0");
+  const promptPrice = Number.parseFloat(model.pricing?.prompt || "0");
+  const completionPrice = Number.parseFloat(model.pricing?.completion || "0");
   const isFree = promptPrice === 0 && completionPrice === 0;
 
   // Format pricing
@@ -171,8 +171,8 @@ async function getFreeModels(): Promise<ModelInfo[]> {
 
   // Filter for FREE models from TRUSTED providers
   const freeModels = allModels.filter((model) => {
-    const promptPrice = parseFloat(model.pricing?.prompt || "0");
-    const completionPrice = parseFloat(model.pricing?.completion || "0");
+    const promptPrice = Number.parseFloat(model.pricing?.prompt || "0");
+    const completionPrice = Number.parseFloat(model.pricing?.completion || "0");
     const isFree = promptPrice === 0 && completionPrice === 0;
 
     if (!isFree) return false;

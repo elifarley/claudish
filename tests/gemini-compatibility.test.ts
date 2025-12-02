@@ -1,4 +1,4 @@
-import { describe, expect, test, mock } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import { createProxyServer } from "../src/proxy-server.js";
 
 // Mock fetch to simulate OpenRouter response

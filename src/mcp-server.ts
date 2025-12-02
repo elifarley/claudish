@@ -7,13 +7,13 @@
  * Run with: claudish-mcp (stdio transport)
  */
 
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
 import { config } from "dotenv";
-import { readFileSync, existsSync, writeFileSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { z } from "zod";
 
 // Load environment variables
 config();
@@ -325,8 +325,8 @@ async function main() {
 
       for (const { model } of results) {
         const provider = model.id.split("/")[0];
-        const promptPrice = parseFloat(model.pricing?.prompt || "0") * 1000000;
-        const completionPrice = parseFloat(model.pricing?.completion || "0") * 1000000;
+        const promptPrice = Number.parseFloat(model.pricing?.prompt || "0") * 1000000;
+        const completionPrice = Number.parseFloat(model.pricing?.completion || "0") * 1000000;
         const avgPrice = (promptPrice + completionPrice) / 2;
         const pricing =
           avgPrice > 0 ? `$${avgPrice.toFixed(2)}/1M` : avgPrice < 0 ? "varies" : "FREE";

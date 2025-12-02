@@ -1,4 +1,4 @@
-import { describe, it, expect, spyOn, mock } from "bun:test";
+import { describe, expect, it, mock, spyOn } from "bun:test";
 import { createProxyServer } from "../src/proxy-server";
 
 // Mock fetch globally

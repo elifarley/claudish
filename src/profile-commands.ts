@@ -10,31 +10,31 @@
  * - claudish profile show [name]: Show profile details
  */
 
+import { confirm, select } from "@inquirer/prompts";
 import {
-  loadConfig,
-  saveConfig,
-  getProfile,
-  getDefaultProfile,
-  getProfileNames,
-  setProfile,
-  deleteProfile,
-  setDefaultProfile,
-  createProfile,
-  listProfiles,
-  configExists,
-  getConfigPath,
-  type Profile,
-  type ModelMapping,
-} from "./profile-config.js";
-import {
+  confirmAction,
+  promptForProfileDescription,
+  promptForProfileName,
   selectModel,
   selectModelsForProfile,
-  promptForProfileName,
-  promptForProfileDescription,
   selectProfile,
-  confirmAction,
 } from "./model-selector.js";
-import { select, confirm } from "@inquirer/prompts";
+import {
+  type ModelMapping,
+  type Profile,
+  configExists,
+  createProfile,
+  deleteProfile,
+  getConfigPath,
+  getDefaultProfile,
+  getProfile,
+  getProfileNames,
+  listProfiles,
+  loadConfig,
+  saveConfig,
+  setDefaultProfile,
+  setProfile,
+} from "./profile-config.js";
 
 // ANSI colors
 const RESET = "\x1b[0m";

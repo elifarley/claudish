@@ -5,7 +5,7 @@
  * Uses real data captured from OpenRouter API interactions
  */
 
-import { describe, it, expect, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 import { GeminiAdapter } from "../src/adapters/gemini-adapter";
 
 describe("Gemini Integration Workflow", () => {

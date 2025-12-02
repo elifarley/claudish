@@ -10,11 +10,11 @@
  * This adapter translates that to Claude Code's expected tool_calls format.
  */
 
-import { BaseModelAdapter, AdapterResult, ToolCall } from "./base-adapter";
 import { log } from "../logger";
+import { type AdapterResult, BaseModelAdapter, type ToolCall } from "./base-adapter";
 
 export class GrokAdapter extends BaseModelAdapter {
-  private xmlBuffer: string = "";
+  private xmlBuffer = "";
 
   processTextContent(textContent: string, accumulatedText: string): AdapterResult {
     // Accumulate text to handle XML split across multiple chunks

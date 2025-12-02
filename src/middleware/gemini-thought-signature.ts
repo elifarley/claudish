@@ -19,11 +19,11 @@
  * - https://openrouter.ai/docs/use-cases/reasoning-tokens#preserving-reasoning-blocks
  */
 
-import { log, isLoggingEnabled, logStructured } from "../logger.js";
+import { isLoggingEnabled, log, logStructured } from "../logger.js";
 import type {
   ModelMiddleware,
-  RequestContext,
   NonStreamingResponseContext,
+  RequestContext,
   StreamChunkContext,
 } from "./types.js";
 

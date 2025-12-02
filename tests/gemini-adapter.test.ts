@@ -5,7 +5,7 @@
  * based on real API responses captured during manual testing.
  */
 
-import { describe, it, expect, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 import { GeminiAdapter } from "../src/adapters/gemini-adapter";
 
 describe("GeminiAdapter", () => {

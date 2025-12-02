@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { createProxyServer } from "../src/proxy-server.js";
 import { OPENROUTER_MODELS } from "../src/types.js";
 import type { AnthropicRequest, AnthropicResponse, OpenRouterModel } from "../src/types.js";
-import { createProxyServer } from "../src/proxy-server.js";
 import type { ProxyServer } from "../src/types.js";
 
 // Load .env file
@@ -76,8 +76,8 @@ async function makeAnthropicRequest(
     const decoder = new TextDecoder();
     let buffer = "";
     let messageId = "";
-    let content: any[] = [];
-    let usage = { input_tokens: 0, output_tokens: 0 };
+    const content: any[] = [];
+    const usage = { input_tokens: 0, output_tokens: 0 };
     let stopReason = null;
     let textContent = "";
 

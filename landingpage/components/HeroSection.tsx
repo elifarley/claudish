@@ -1,8 +1,9 @@
-import React, { useState, useRef, useEffect } from "react";
-import { TerminalWindow } from "./TerminalWindow";
+import type React from "react";
+import { useEffect, useRef, useState } from "react";
 import { HERO_SEQUENCE } from "../constants";
-import { TypingAnimation } from "./TypingAnimation";
 import { BlockLogo } from "./BlockLogo";
+import { TerminalWindow } from "./TerminalWindow";
+import { TypingAnimation } from "./TypingAnimation";
 
 // Text-based Ghost Logo from CLI
 const AsciiGhost = () => {
@@ -91,7 +92,7 @@ const HeroSection: React.FC = () => {
 
   // Update Status Bar based on visible lines
   useEffect(() => {
-    let newStatus = { ...status };
+    const newStatus = { ...status };
     let hasUpdates = false;
 
     // Scan visible lines to find the latest state

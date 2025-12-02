@@ -22,8 +22,8 @@
  * for later inclusion in tool results.
  */
 
-import { BaseModelAdapter, AdapterResult, ToolCall } from "./base-adapter";
 import { log } from "../logger";
+import { type AdapterResult, BaseModelAdapter, ToolCall } from "./base-adapter";
 
 export class GeminiAdapter extends BaseModelAdapter {
   // Store for thought signatures: tool_call_id -> signature

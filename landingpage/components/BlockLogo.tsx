@@ -1,4 +1,4 @@
-import React from "react";
+import type React from "react";
 
 // Grid definition: 1 = filled block, 0 = empty space
 const LETTERS: Record<string, number[][]> = {

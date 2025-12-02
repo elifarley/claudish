@@ -184,7 +184,7 @@ export function transformMessages(req: any): void {
   if (!req.messages || !Array.isArray(req.messages)) return;
 
   const transformedMessages: any[] = [];
-  let systemMessages: string[] = [];
+  const systemMessages: string[] = [];
 
   for (const msg of req.messages) {
     // Handle developer messages (o3 specific) - treat as system messages

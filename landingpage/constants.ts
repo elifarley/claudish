@@ -1,4 +1,4 @@
-import { TerminalLine, Feature, ModelCard } from "./types";
+import type { Feature, ModelCard, TerminalLine } from "./types";
 
 export const HERO_SEQUENCE: TerminalLine[] = [
   // 1. System Boot

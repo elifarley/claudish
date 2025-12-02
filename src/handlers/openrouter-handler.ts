@@ -1,13 +1,13 @@
-import type { Context } from "hono";
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ModelHandler } from "./types.js";
+import type { Context } from "hono";
 import { AdapterManager } from "../adapters/adapter-manager.js";
-import { MiddlewareManager, GeminiThoughtSignatureMiddleware } from "../middleware/index.js";
-import { transformOpenAIToClaude, removeUriFormat } from "../transform.js";
-import { log, logStructured, isLoggingEnabled } from "../logger.js";
-import { fetchModelContextWindow, doesModelSupportReasoning } from "../model-loader.js";
+import { isLoggingEnabled, log, logStructured } from "../logger.js";
+import { GeminiThoughtSignatureMiddleware, MiddlewareManager } from "../middleware/index.js";
+import { doesModelSupportReasoning, fetchModelContextWindow } from "../model-loader.js";
+import { removeUriFormat, transformOpenAIToClaude } from "../transform.js";
+import type { ModelHandler } from "./types.js";
 
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_HEADERS = {
@@ -274,11 +274,11 @@ export class OpenRouterHandler implements ModelHandler {
           let textStarted = false;
           let textIdx = -1;
           let reasoningStarted = false;
-          let reasoningIdx = -1;
+          const reasoningIdx = -1;
           let curIdx = 0;
           const tools = new Map<number, any>();
           const toolIds = new Set<string>();
-          let accTxt = 0;
+          const accTxt = 0;
           let lastActivity = Date.now();
 
           send("message_start", {

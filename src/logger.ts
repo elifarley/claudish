@@ -1,4 +1,4 @@
-import { writeFileSync, appendFile, existsSync, mkdirSync } from "fs";
+import { appendFile, existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 
 let logFilePath: string | null = null;
@@ -163,7 +163,7 @@ export function getLogLevel(): "debug" | "info" | "minimal" {
 /**
  * Truncate content for logging (keeps first N chars + "...")
  */
-export function truncateContent(content: string | any, maxLength: number = 200): string {
+export function truncateContent(content: string | any, maxLength = 200): string {
   const str = typeof content === "string" ? content : JSON.stringify(content);
   if (str.length <= maxLength) {
     return str;

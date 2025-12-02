@@ -10,7 +10,7 @@
  *   bun tests/capture-fixture.ts logs/monitor.log --name "simple_query" --category "text"
  */
 
-import { readFileSync, writeFileSync, existsSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 interface FixtureEvent {

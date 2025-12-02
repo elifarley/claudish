@@ -1,5 +1,5 @@
-import { BaseModelAdapter, AdapterResult } from "./base-adapter";
 import { log } from "../logger";
+import { type AdapterResult, BaseModelAdapter } from "./base-adapter";
 
 export class DeepSeekAdapter extends BaseModelAdapter {
   processTextContent(textContent: string, accumulatedText: string): AdapterResult {

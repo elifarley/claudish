@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
+import type React from "react";
+import { useEffect, useRef, useState } from "react";
 import { TerminalWindow } from "./TerminalWindow";
 
 export const MultiModelAnimation: React.FC = () => {
@@ -38,7 +39,7 @@ export const MultiModelAnimation: React.FC = () => {
       { s: 8, delay: 5000 }, // Complete
     ];
 
-    let timeouts: ReturnType<typeof setTimeout>[] = [];
+    const timeouts: ReturnType<typeof setTimeout>[] = [];
     timeline.forEach((step) => {
       timeouts.push(setTimeout(() => setStage(step.s), step.delay));
     });

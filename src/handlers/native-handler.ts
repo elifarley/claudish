@@ -1,6 +1,6 @@
 import type { Context } from "hono";
-import type { ModelHandler } from "./types.js";
 import { log, maskCredential } from "../logger.js";
+import type { ModelHandler } from "./types.js";
 
 export class NativeHandler implements ModelHandler {
   private apiKey?: string;

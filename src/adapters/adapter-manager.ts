@@ -8,13 +8,13 @@
  * - Others: (future)
  */
 
-import { BaseModelAdapter, DefaultAdapter } from "./base-adapter";
-import { GrokAdapter } from "./grok-adapter";
+import { type BaseModelAdapter, DefaultAdapter } from "./base-adapter";
+import { DeepSeekAdapter } from "./deepseek-adapter";
 import { GeminiAdapter } from "./gemini-adapter";
+import { GrokAdapter } from "./grok-adapter";
+import { MiniMaxAdapter } from "./minimax-adapter";
 import { OpenAIAdapter } from "./openai-adapter";
 import { QwenAdapter } from "./qwen-adapter";
-import { MiniMaxAdapter } from "./minimax-adapter";
-import { DeepSeekAdapter } from "./deepseek-adapter";
 
 export class AdapterManager {
   private adapters: BaseModelAdapter[];

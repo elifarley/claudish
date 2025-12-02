@@ -5,11 +5,11 @@
  * Ensures 1:1 compatibility with official Claude Code protocol.
  */
 
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
-import type { ProxyServer } from "../src/types";
 import { createProxyServer } from "../src/proxy-server";
+import type { ProxyServer } from "../src/types";
 
 interface FixtureEvent {
   event: string;

@@ -5,8 +5,8 @@
  * - Mapping 'thinking.budget_tokens' to 'reasoning_effort' for o1/o3 models
  */
 
-import { BaseModelAdapter, AdapterResult } from "./base-adapter.js";
 import { log } from "../logger.js";
+import { type AdapterResult, BaseModelAdapter } from "./base-adapter.js";
 
 export class OpenAIAdapter extends BaseModelAdapter {
   processTextContent(textContent: string, accumulatedText: string): AdapterResult {

@@ -1,11 +1,11 @@
-import { ENV } from "./config.js";
-import type { ClaudishConfig } from "./types.js";
-import { loadModelInfo, getAvailableModels } from "./model-loader.js";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { ENV } from "./config.js";
+import { getAvailableModels, loadModelInfo } from "./model-loader.js";
+import { getDefaultProfile, getModelMapping, getProfile } from "./profile-config.js";
+import type { ClaudishConfig } from "./types.js";
 import { fuzzyScore } from "./utils.js";
-import { getProfile, getDefaultProfile, getModelMapping } from "./profile-config.js";
 
 // Read version from package.json
 const __filename = fileURLToPath(import.meta.url);
@@ -391,8 +391,8 @@ async function searchAndPrintModels(query: string, forceUpdate: boolean): Promis
     const providerPadded = provider.padEnd(10);
 
     // Format pricing (handle special cases: negative = varies, 0 = free)
-    const promptPrice = parseFloat(model.pricing?.prompt || "0") * 1000000;
-    const completionPrice = parseFloat(model.pricing?.completion || "0") * 1000000;
+    const promptPrice = Number.parseFloat(model.pricing?.prompt || "0") * 1000000;
+    const completionPrice = Number.parseFloat(model.pricing?.completion || "0") * 1000000;
     const avg = (promptPrice + completionPrice) / 2;
     let pricing: string;
     if (avg < 0) {
@@ -519,8 +519,8 @@ async function printAllModels(jsonOutput: boolean, forceUpdate: boolean): Promis
       const modelIdPadded = modelId.padEnd(42);
 
       // Format pricing (handle special cases: negative = varies, 0 = free)
-      const promptPrice = parseFloat(model.pricing?.prompt || "0") * 1000000;
-      const completionPrice = parseFloat(model.pricing?.completion || "0") * 1000000;
+      const promptPrice = Number.parseFloat(model.pricing?.prompt || "0") * 1000000;
+      const completionPrice = Number.parseFloat(model.pricing?.completion || "0") * 1000000;
       const avg = (promptPrice + completionPrice) / 2;
       let pricing: string;
       if (avg < 0) {
@@ -665,8 +665,8 @@ async function updateModelsFromOpenRouter(): Promise<void> {
       const supportedParams = model.supported_parameters || [];
 
       // Calculate pricing (handle both per-token and per-million formats)
-      const promptPrice = parseFloat(model.pricing?.prompt || "0");
-      const completionPrice = parseFloat(model.pricing?.completion || "0");
+      const promptPrice = Number.parseFloat(model.pricing?.prompt || "0");
+      const completionPrice = Number.parseFloat(model.pricing?.completion || "0");
 
       const inputPrice = promptPrice > 0 ? `$${(promptPrice * 1000000).toFixed(2)}/1M` : "FREE";
       const outputPrice =
@@ -756,7 +756,7 @@ async function updateModelsFromOpenRouter(): Promise<void> {
 /**
  * Check cache staleness and update if needed
  */
-async function checkAndUpdateModelsCache(forceUpdate: boolean = false): Promise<void> {
+async function checkAndUpdateModelsCache(forceUpdate = false): Promise<void> {
   if (forceUpdate) {
     console.error("🔄 Force update requested...");
     await updateModelsFromOpenRouter();

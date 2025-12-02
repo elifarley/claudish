@@ -1,17 +1,17 @@
+import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { serve } from "@hono/node-server";
-import { log, isLoggingEnabled } from "./logger.js";
-import type { ProxyServer } from "./types.js";
 import { NativeHandler } from "./handlers/native-handler.js";
 import { OpenRouterHandler } from "./handlers/openrouter-handler.js";
 import type { ModelHandler } from "./handlers/types.js";
+import { isLoggingEnabled, log } from "./logger.js";
+import type { ProxyServer } from "./types.js";
 
 export async function createProxyServer(
   port: number,
   openrouterApiKey?: string,
   model?: string,
-  monitorMode: boolean = false,
+  monitorMode = false,
   anthropicApiKey?: string,
   modelMap?: { opus?: string; sonnet?: string; haiku?: string; subagent?: string }
 ): Promise<ProxyServer> {

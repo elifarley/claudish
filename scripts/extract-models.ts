@@ -1,12 +1,15 @@
 #!/usr/bin/env bun
 
 /**
- * Extract model information from shared/recommended-models.md
+ * Extract model information from multiple providers (OpenRouter, Poe)
  * and generate TypeScript types for use in Claudish
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { PoeProvider } from "../src/providers/poe-provider.js";
+import { OpenRouterProvider } from "../src/providers/openrouter-provider.js";
+import type { UnifiedModel } from "../src/types.js";
 
 interface ModelInfo {
   name: string;
@@ -85,26 +88,27 @@ function generateTypeScript(models: ExtractedModels): string {
 
   const modelInfo = Object.entries(models)
     .map(([id, info]) => {
+      // Escape quotes and newlines in description
+      const escapedName = info.name.replace(/"/g, '\\"').replace(/\n/g, '\\n');
+      const escapedDescription = info.description.replace(/"/g, '\\"').replace(/\n/g, '\\n');
       return `  "${id}": {
-    name: "${info.name}",
-    description: "${info.description}",
+    name: "${escapedName}",
+    description: "${escapedDescription}",
     priority: ${info.priority},
     provider: "${info.provider}",
   }`;
     })
     .join(",\n");
 
-  return `// AUTO-GENERATED from shared/recommended-models.md
+  return `// AUTO-GENERATED from multiple providers
 // DO NOT EDIT MANUALLY - Run 'bun run extract-models' to regenerate
 
-import type { OpenRouterModel } from "./types.js";
-
-export const DEFAULT_MODEL: OpenRouterModel = "x-ai/grok-code-fast-1";
+export const DEFAULT_MODEL = "x-ai/grok-code-fast-1";
 export const DEFAULT_PORT_RANGE = { start: 3000, end: 9000 };
 
 // Model metadata for validation and display
 export const MODEL_INFO: Record<
-  OpenRouterModel,
+  string,
   { name: string; description: string; priority: number; provider: string }
 > = {
 ${modelInfo},
@@ -145,32 +149,81 @@ function generateTypes(models: ExtractedModels): string {
     .map((id) => `  "${id}"`)
     .join(",\n");
 
-  return `// AUTO-GENERATED from shared/recommended-models.md
+  return `// AUTO-GENERATED from multiple providers
 // DO NOT EDIT MANUALLY - Run 'bun run extract-models' to regenerate
 
-// OpenRouter Models - Top Recommended for Development (Priority Order)
-export const OPENROUTER_MODELS = [
+// All Available Models (Priority Order)
+export const ALL_MODELS = [
 ${modelIds},
   "custom",
 ] as const;
 
-export type OpenRouterModel = (typeof OPENROUTER_MODELS)[number];
+export type AllModel = (typeof ALL_MODELS)[number];
+
+// Legacy type for backward compatibility
+export type OpenRouterModel = AllModel;
+export const OPENROUTER_MODELS = ALL_MODELS;
 `;
+}
+
+// Provider factory
+function createProvider(providerName: string) {
+  switch (providerName.toLowerCase()) {
+    case 'poe':
+      return new PoeProvider();
+    case 'openrouter':
+      return new OpenRouterProvider();
+    default:
+      throw new Error(`Unknown provider: ${providerName}`);
+  }
 }
 
 // Main execution
 try {
-  const sharedModelsPath = join(import.meta.dir, "../../../shared/recommended-models.md");
+  // Get provider from command line args
+  const providerArg = process.argv[2] || 'all';
   const configPath = join(import.meta.dir, "../src/config.ts");
   const typesPath = join(import.meta.dir, "../src/types.ts");
 
-  console.log("📖 Reading shared/recommended-models.md...");
-  const markdownContent = readFileSync(sharedModelsPath, "utf-8");
+  console.log(`🔍 Extracting models from provider(s): ${providerArg}`);
 
-  console.log("🔍 Extracting model information...");
-  const models = extractModels(markdownContent);
+  const models: ExtractedModels = {};
+  const providers = [];
 
-  console.log(`✅ Found ${Object.keys(models).length - 1} models + custom option`);
+  if (providerArg === 'all') {
+    providers.push(new OpenRouterProvider(), new PoeProvider());
+  } else if (providerArg.includes(',')) {
+    // Support multiple providers: "openrouter,poe"
+    for (const name of providerArg.split(',')) {
+      providers.push(createProvider(name.trim()));
+    }
+  } else {
+    providers.push(createProvider(providerArg));
+  }
+
+  // Fetch models from all specified providers
+  for (const provider of providers) {
+    console.log(`\n📡 Fetching from ${provider.name}...`);
+    try {
+      const providerModels = await provider.fetchModels();
+
+      for (const model of providerModels) {
+        models[model.id] = {
+          name: model.name,
+          description: model.description,
+          priority: model.priority || 999,
+          provider: model.provider,
+        };
+      }
+
+      console.log(`✅ ${provider.name}: ${providerModels.length} models extracted`);
+    } catch (error) {
+      console.error(`❌ ${provider.name}: Failed to extract models - ${error.message}`);
+      // Continue with other providers
+    }
+  }
+
+  console.log(`\n📊 Total models extracted: ${Object.keys(models).length}`);
 
   console.log("📝 Generating config.ts...");
   const configCode = generateTypeScript(models);
@@ -202,10 +255,24 @@ try {
 
   console.log("✅ Successfully generated TypeScript files");
   console.log("");
-  console.log("Models:");
+  console.log("Models by provider:");
+
+  // Group by provider for display
+  const byProvider: Record<string, ExtractedModels> = {};
   for (const [id, info] of Object.entries(models)) {
-    if (id !== "custom") {
-      console.log(`  • ${id} - ${info.name} (${info.provider})`);
+    if (!byProvider[info.provider]) byProvider[info.provider] = {};
+    byProvider[info.provider][id] = info;
+  }
+
+  for (const [provider, providerModels] of Object.entries(byProvider)) {
+    console.log(`\n${provider.toUpperCase()} (${Object.keys(providerModels).length}):`);
+    const sorted = Object.entries(providerModels)
+      .sort(([,a], [,b]) => a.priority - b.priority);
+    for (const [id, info] of sorted.slice(0, 10)) { // Show top 10 per provider
+      console.log(`  • ${id} - ${info.name}`);
+    }
+    if (Object.keys(providerModels).length > 10) {
+      console.log(`  ... and ${Object.keys(providerModels).length - 10} more`);
     }
   }
 } catch (error) {

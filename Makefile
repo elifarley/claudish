@@ -77,20 +77,38 @@ dev-debug: ## Run with full debug output
 
 ##@ 🏗️ Build
 
-build: ## Build the project for production
+build: extract-models ## Build the project for production (includes model extraction)
 	@echo "$(CYAN)🏗️  Building project...$(RESET)"
-	@$(BUN) build src/index.ts --outdir dist --target node
-	@chmod +x dist/index.js
+	@$(BUN) run build
 	@echo "$(GREEN)✓ Build complete: dist/index.js$(RESET)"
 
 build-watch: ## Build and watch for changes
 	@echo "$(CYAN)👀 Building and watching...$(RESET)"
 	@$(BUN) build src/index.ts --outdir dist --target node --watch
 
-extract-models: ## Extract model definitions
-	@echo "$(CYAN)📋 Extracting models...$(RESET)"
-	@$(BUN) run scripts/extract-models.ts
+extract-models: ## Extract models from all providers
+	@echo "$(CYAN)📋 Extracting models from all providers...$(RESET)"
+	@$(BUN) run scripts/extract-models.ts all
 	@echo "$(GREEN)✓ Models extracted$(RESET)"
+
+extract-models-poe: ## Extract only Poe models
+	@echo "$(CYAN)📋 Extracting Poe models...$(RESET)"
+	@$(BUN) run scripts/extract-models.ts poe
+	@echo "$(GREEN)✓ Poe models extracted$(RESET)"
+
+extract-models-openrouter: ## Extract only OpenRouter models
+	@echo "$(CYAN)📋 Extracting OpenRouter models...$(RESET)"
+	@$(BUN) run scripts/extract-models.ts openrouter
+	@echo "$(GREEN)✓ OpenRouter models extracted$(RESET)"
+
+update-models: extract-models build ## Update models and rebuild (all providers)
+	@echo "$(GREEN)✓ Models updated and rebuilt$(RESET)"
+
+update-models-poe: extract-models-poe build ## Update only Poe models and rebuild
+	@echo "$(GREEN)✓ Poe models updated and rebuilt$(RESET)"
+
+update-models-openrouter: extract-models-openrouter build ## Update only OpenRouter models and rebuild
+	@echo "$(GREEN)✓ OpenRouter models updated and rebuilt$(RESET)"
 
 ##@ ✅ Quality Assurance
 

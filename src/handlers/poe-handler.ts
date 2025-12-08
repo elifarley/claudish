@@ -92,6 +92,157 @@ class SSEParser {
 }
 
 /**
+ * Elegant XML tool call parser for Poe models
+ */
+export class XMLToolCallParser {
+  private static readonly FUNCTION_CALLS_START = '<function_calls>';
+  private static readonly FUNCTION_CALLS_END = '</function_calls>';
+  private static readonly INVOKE_START = '<invoke name="';
+  private static readonly INVOKE_END = '</invoke>';
+  private static readonly PARAMETER_START = '<parameter name="';
+  private static readonly PARAMETER_END = '</parameter>';
+
+  /**
+   * Detect if text contains XML tool calls
+   */
+  static containsToolCalls(text: string): boolean {
+    return text.includes(this.FUNCTION_CALLS_START);
+  }
+
+  /**
+   * Extract and convert XML tool calls to OpenAI format
+   */
+  static parseToolCalls(text: string, toolIndex: number = 0): any[] | null {
+    if (!this.containsToolCalls(text)) {
+      return null;
+    }
+
+    const toolCalls: any[] = [];
+
+    // Extract the function_calls block
+    const startIdx = text.indexOf(this.FUNCTION_CALLS_START);
+    const endIdx = text.indexOf(this.FUNCTION_CALLS_END);
+
+    if (startIdx === -1 || endIdx === -1) {
+      return null;
+    }
+
+    const functionCallsBlock = text.substring(
+      startIdx + this.FUNCTION_CALLS_START.length,
+      endIdx
+    );
+
+    // Find all invoke blocks
+    const invokeBlocks = this.extractInvokeBlocks(functionCallsBlock);
+
+    for (let i = 0; i < invokeBlocks.length; i++) {
+      const toolCall = this.parseInvokeBlock(invokeBlocks[i], toolIndex + i);
+      if (toolCall) {
+        toolCalls.push(toolCall);
+      }
+    }
+
+    return toolCalls.length > 0 ? toolCalls : null;
+  }
+
+  /**
+   * Extract individual invoke blocks from function_calls content
+   */
+  private static extractInvokeBlocks(functionCallsContent: string): string[] {
+    const blocks: string[] = [];
+    let currentIdx = 0;
+
+    while (currentIdx < functionCallsContent.length) {
+      const startIdx = functionCallsContent.indexOf(this.INVOKE_START, currentIdx);
+      if (startIdx === -1) break;
+
+      const endIdx = functionCallsContent.indexOf(this.INVOKE_END, startIdx);
+      if (endIdx === -1) break;
+
+      blocks.push(functionCallsContent.substring(startIdx, endIdx + this.INVOKE_END.length));
+      currentIdx = endIdx + this.INVOKE_END.length;
+    }
+
+    return blocks;
+  }
+
+  /**
+   * Parse a single invoke block into OpenAI tool call format
+   */
+  private static parseInvokeBlock(invokeBlock: string, index: number): any | null {
+    // Extract function name
+    const nameStart = invokeBlock.indexOf(this.INVOKE_START);
+    if (nameStart === -1) return null;
+
+    const nameEnd = invokeBlock.indexOf('"', nameStart + this.INVOKE_START.length);
+    if (nameEnd === -1) return null;
+
+    const functionName = invokeBlock.substring(
+      nameStart + this.INVOKE_START.length,
+      nameEnd
+    );
+
+    // Extract all parameters
+    const parameters: Record<string, string> = {};
+    let currentIdx = nameEnd;
+
+    while (currentIdx < invokeBlock.length) {
+      const paramStart = invokeBlock.indexOf(this.PARAMETER_START, currentIdx);
+      if (paramStart === -1) break;
+
+      const paramNameEnd = invokeBlock.indexOf('"', paramStart + this.PARAMETER_START.length);
+      if (paramNameEnd === -1) break;
+
+      const paramName = invokeBlock.substring(
+        paramStart + this.PARAMETER_START.length,
+        paramNameEnd
+      );
+
+      const paramValueStart = invokeBlock.indexOf('>', paramNameEnd);
+      if (paramValueStart === -1) break;
+
+      const paramEndTag = invokeBlock.indexOf(this.PARAMETER_END, paramValueStart);
+      if (paramEndTag === -1) break;
+
+      const paramValue = invokeBlock.substring(paramValueStart + 1, paramEndTag);
+
+      parameters[paramName] = paramValue.trim();
+      currentIdx = paramEndTag + this.PARAMETER_END.length;
+    }
+
+    // Generate unique ID with timestamp and random component
+    const toolId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${index}`;
+
+    return {
+      index,
+      id: toolId,
+      function: {
+        name: functionName,
+        arguments: JSON.stringify(parameters)
+      }
+    };
+  }
+
+  /**
+   * Remove XML tool calls from text (for clean text extraction)
+   */
+  static removeToolCalls(text: string): string {
+    if (!this.containsToolCalls(text)) {
+      return text;
+    }
+
+    const startIdx = text.indexOf(this.FUNCTION_CALLS_START);
+    const endIdx = text.indexOf(this.FUNCTION_CALLS_END);
+
+    if (startIdx !== -1 && endIdx !== -1) {
+      return text.substring(0, startIdx) + text.substring(endIdx + this.FUNCTION_CALLS_END.length);
+    }
+
+    return text;
+  }
+}
+
+/**
  * Content block tracker for managing Claude-compatible content blocks
  */
 class ContentBlockTracker {
@@ -443,22 +594,47 @@ export class PoeHandler implements ModelHandler {
     if (chunk.object === "chat.completion.chunk" || chunk.object === "chat.completion") {
       const delta = choice.delta || {};
 
-      // Handle finish reason first (highest priority)
-      if (choice.finish_reason) {
+      // Handle tool_calls deltas first (critical for tool call processing)
+      if (delta.tool_calls) {
         return {
-          type: "content_block_stop",
-          index: 0
+          type: "tool_calls",
+          tool_calls: delta.tool_calls
         };
       }
 
       // Handle content deltas (the main text content)
       if (delta.content && typeof delta.content === 'string' && delta.content.length > 0) {
+        // Check if content contains XML tool calls (Poe format)
+        if (XMLToolCallParser.containsToolCalls(delta.content)) {
+          const toolCalls = XMLToolCallParser.parseToolCalls(delta.content);
+          const cleanText = XMLToolCallParser.removeToolCalls(delta.content);
+
+          // If we have both tool calls AND text, return both
+          if (toolCalls && toolCalls.length > 0 && cleanText.length > 0) {
+            // Store both for separate processing
+            (delta as any)._cachedToolCalls = toolCalls;
+            (delta as any)._cachedCleanText = cleanText;
+
+            // Return tool calls first, text will be processed in next iteration
+            return {
+              type: "tool_calls",
+              tool_calls: toolCalls
+            };
+          } else if (toolCalls && toolCalls.length > 0) {
+            // Only tool calls, no text
+            return {
+              type: "tool_calls",
+              tool_calls: toolCalls
+            };
+          }
+        }
+
         return {
           type: "content_block_delta",
           index: 0,
           delta: {
             type: "text_delta",
-            text: delta.content
+            text: XMLToolCallParser.removeToolCalls(delta.content)
           }
         };
       }
@@ -475,11 +651,11 @@ export class PoeHandler implements ModelHandler {
         return null;
       }
 
-      // Handle tool_calls deltas with full Claude compatibility
-      if (delta.tool_calls) {
+      // Handle finish reason (but only if no tool calls)
+      if (choice.finish_reason) {
         return {
-          type: "tool_calls",
-          tool_calls: delta.tool_calls
+          type: "content_block_stop",
+          index: 0
         };
       }
 
@@ -617,8 +793,13 @@ export class PoeHandler implements ModelHandler {
                 try {
                   const openaiChunk: OpenAIChunk = JSON.parse(data);
 
-                  // Check if we have content that needs a content block
-                  if (currentBlockIndex === null && openaiChunk.choices?.[0]?.delta?.content) {
+                  // Transform and send content delta
+                  const claudeChunk = this.transformChunk(openaiChunk);
+
+                  // Check if we need to start a text block (but NOT if we have tool calls)
+                  if (currentBlockIndex === null &&
+                      openaiChunk.choices?.[0]?.delta?.content &&
+                      claudeChunk?.type !== "tool_calls") {
                     currentBlockIndex = blockTracker.startTextBlock();
                     send("content_block_start", {
                       type: "content_block_start",
@@ -629,9 +810,6 @@ export class PoeHandler implements ModelHandler {
                       }
                     });
                   }
-
-                  // Transform and send content delta
-                  const claudeChunk = this.transformChunk(openaiChunk);
 
                   if (claudeChunk) {
                     if (claudeChunk.type === "content_block_delta" && currentBlockIndex !== null) {
@@ -704,6 +882,35 @@ export class PoeHandler implements ModelHandler {
                           }
                         }
                       }
+                    }
+
+                    // After processing tool calls, check for cached text content
+                    if (delta._cachedCleanText && delta._cachedCleanText.length > 0) {
+                      // Start a text block if needed
+                      if (currentBlockIndex === null) {
+                        currentBlockIndex = blockTracker.startTextBlock();
+                        send("content_block_start", {
+                          type: "content_block_start",
+                          index: currentBlockIndex,
+                          content_block: {
+                            type: "text",
+                            text: ""
+                          }
+                        });
+                      }
+
+                      // Send the cached text content
+                      send("content_block_delta", {
+                        type: "content_block_delta",
+                        index: currentBlockIndex,
+                        delta: {
+                          type: "text_delta",
+                          text: delta._cachedCleanText
+                        }
+                      });
+
+                      // Clear the cached text to avoid duplicate processing
+                      delete (delta as any)._cachedCleanText;
                     }
                   }
 

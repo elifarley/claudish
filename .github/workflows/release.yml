@@ -124,7 +124,7 @@ jobs:
         run: bun install
 
       - name: Build
-        run: bun run build
+        run: bun run build:ci
 
       - name: Publish to npm
         run: npm publish --access public --provenance

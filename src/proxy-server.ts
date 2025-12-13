@@ -5,7 +5,9 @@ import { log, isLoggingEnabled } from "./logger.js";
 import type { ProxyServer } from "./types.js";
 import { NativeHandler } from "./handlers/native-handler.js";
 import { OpenRouterHandler } from "./handlers/openrouter-handler.js";
+import { LocalProviderHandler } from "./handlers/local-provider-handler.js";
 import type { ModelHandler } from "./handlers/types.js";
+import { resolveProvider, parseUrlModel, createUrlProvider } from "./providers/provider-registry.js";
 
 export async function createProxyServer(
   port: number,
@@ -18,22 +20,56 @@ export async function createProxyServer(
 
   // Define handlers for different roles
   const nativeHandler = new NativeHandler(anthropicApiKey);
-  const handlers = new Map<string, ModelHandler>(); // Map from Target Model ID -> Handler Instance
+  const openRouterHandlers = new Map<string, ModelHandler>(); // Map from Target Model ID -> OpenRouter Handler
+  const localProviderHandlers = new Map<string, ModelHandler>(); // Map from Target Model ID -> Local Provider Handler
 
-  // Helper to get or create handler for a target model
+  // Helper to get or create OpenRouter handler for a target model
   const getOpenRouterHandler = (targetModel: string): ModelHandler => {
-      if (!handlers.has(targetModel)) {
-          handlers.set(targetModel, new OpenRouterHandler(targetModel, openrouterApiKey, port));
+      if (!openRouterHandlers.has(targetModel)) {
+          openRouterHandlers.set(targetModel, new OpenRouterHandler(targetModel, openrouterApiKey, port));
       }
-      return handlers.get(targetModel)!;
+      return openRouterHandlers.get(targetModel)!;
+  };
+
+  // Helper to get or create Local Provider handler for a target model
+  const getLocalProviderHandler = (targetModel: string): ModelHandler | null => {
+      if (localProviderHandlers.has(targetModel)) {
+          return localProviderHandlers.get(targetModel)!;
+      }
+
+      // Check for prefix-based local provider (ollama/, lmstudio/, etc.)
+      const resolved = resolveProvider(targetModel);
+      if (resolved) {
+          const handler = new LocalProviderHandler(resolved.provider, resolved.modelName, port);
+          localProviderHandlers.set(targetModel, handler);
+          log(`[Proxy] Created local provider handler: ${resolved.provider.name}/${resolved.modelName}`);
+          return handler;
+      }
+
+      // Check for URL-based model (http://localhost:11434/llama3)
+      const urlParsed = parseUrlModel(targetModel);
+      if (urlParsed) {
+          const provider = createUrlProvider(urlParsed);
+          const handler = new LocalProviderHandler(provider, urlParsed.modelName, port);
+          localProviderHandlers.set(targetModel, handler);
+          log(`[Proxy] Created URL-based local provider handler: ${urlParsed.baseUrl}/${urlParsed.modelName}`);
+          return handler;
+      }
+
+      return null;
   };
 
   // Pre-initialize handlers for mapped models to ensure warm-up (context window fetch etc)
-  if (model) getOpenRouterHandler(model);
-  if (modelMap?.opus) getOpenRouterHandler(modelMap.opus);
-  if (modelMap?.sonnet) getOpenRouterHandler(modelMap.sonnet);
-  if (modelMap?.haiku) getOpenRouterHandler(modelMap.haiku);
-  if (modelMap?.subagent) getOpenRouterHandler(modelMap.subagent);
+  const initHandler = (m: string | undefined) => {
+      if (!m) return;
+      const localHandler = getLocalProviderHandler(m);
+      if (!localHandler && m.includes("/")) getOpenRouterHandler(m);
+  };
+  initHandler(model);
+  initHandler(modelMap?.opus);
+  initHandler(modelMap?.sonnet);
+  initHandler(modelMap?.haiku);
+  initHandler(modelMap?.subagent);
 
   const getHandlerForRequest = (requestedModel: string): ModelHandler => {
       // 1. Monitor Mode Override
@@ -52,7 +88,11 @@ export async function createProxyServer(
           // Assuming Haiku mapping covers subagent unless custom logic added.
       }
 
-      // 3. Native vs OpenRouter Decision
+      // 3. Check for Local Provider (ollama/, lmstudio/, vllm/, or URL)
+      const localHandler = getLocalProviderHandler(target);
+      if (localHandler) return localHandler;
+
+      // 4. Native vs OpenRouter Decision
       // Heuristic: OpenRouter models have "/", Native ones don't.
       const isNative = !target.includes("/");
 
@@ -61,7 +101,7 @@ export async function createProxyServer(
           return nativeHandler;
       }
 
-      // 4. OpenRouter Handler
+      // 5. OpenRouter Handler
       return getOpenRouterHandler(target);
   };
 

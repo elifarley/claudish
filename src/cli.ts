@@ -296,6 +296,41 @@ const MODELS_JSON_PATH = join(__dirname, "../recommended-models.json");
 const ALL_MODELS_JSON_PATH = join(__dirname, "../all-models.json");
 
 /**
+ * Fetch locally available Ollama models
+ * Returns empty array if Ollama is not running
+ */
+async function fetchOllamaModels(): Promise<any[]> {
+  const ollamaHost = process.env.OLLAMA_HOST || process.env.OLLAMA_BASE_URL || "http://localhost:11434";
+
+  try {
+    const response = await fetch(`${ollamaHost}/api/tags`, {
+      signal: AbortSignal.timeout(3000), // 3 second timeout
+    });
+
+    if (!response.ok) return [];
+
+    const data = await response.json();
+    const models = data.models || [];
+
+    // Convert Ollama format to OpenRouter-like format for consistency
+    return models.map((m: any) => ({
+      id: `ollama/${m.name}`,
+      name: m.name,
+      description: `Local Ollama model (${m.details?.parameter_size || 'unknown size'})`,
+      provider: "ollama",
+      context_length: null, // Ollama doesn't expose this in /api/tags
+      pricing: { prompt: "0", completion: "0" }, // Free (local)
+      isLocal: true,
+      details: m.details,
+      size: m.size,
+    }));
+  } catch (e) {
+    // Ollama not running or not reachable
+    return [];
+  }
+}
+
+/**
  * Search all available models and print results
  */
 async function searchAndPrintModels(query: string, forceUpdate: boolean): Promise<void> {
@@ -340,6 +375,13 @@ async function searchAndPrintModels(query: string, forceUpdate: boolean): Promis
     }
   }
 
+  // Fetch local Ollama models and add to search
+  const ollamaModels = await fetchOllamaModels();
+  if (ollamaModels.length > 0) {
+    console.error(`🏠 Found ${ollamaModels.length} local Ollama models`);
+    models = [...ollamaModels, ...models];
+  }
+
   // Perform fuzzy search
   const results = models
     .map(model => {
@@ -375,17 +417,21 @@ async function searchAndPrintModels(query: string, forceUpdate: boolean): Promis
       const provider = providerName.length > 10 ? providerName.substring(0, 7) + "..." : providerName;
       const providerPadded = provider.padEnd(10);
 
-      // Format pricing (handle special cases: negative = varies, 0 = free)
-      const promptPrice = parseFloat(model.pricing?.prompt || "0") * 1000000;
-      const completionPrice = parseFloat(model.pricing?.completion || "0") * 1000000;
-      const avg = (promptPrice + completionPrice) / 2;
+      // Format pricing (handle special cases: local, negative = varies, 0 = free)
       let pricing: string;
-      if (avg < 0) {
-        pricing = "varies";  // Auto-router or dynamic pricing
-      } else if (avg === 0) {
-        pricing = "FREE";
+      if (model.isLocal) {
+        pricing = "LOCAL";
       } else {
-        pricing = `$${avg.toFixed(2)}/1M`;
+        const promptPrice = parseFloat(model.pricing?.prompt || "0") * 1000000;
+        const completionPrice = parseFloat(model.pricing?.completion || "0") * 1000000;
+        const avg = (promptPrice + completionPrice) / 2;
+        if (avg < 0) {
+          pricing = "varies";  // Auto-router or dynamic pricing
+        } else if (avg === 0) {
+          pricing = "FREE";
+        } else {
+          pricing = `$${avg.toFixed(2)}/1M`;
+        }
       }
       const pricingPadded = pricing.padEnd(10);
 
@@ -398,13 +444,17 @@ async function searchAndPrintModels(query: string, forceUpdate: boolean): Promis
   }
   console.log("");
   console.log("Use a model: claudish --model <model-id>");
+  console.log("Local models: claudish --model ollama/<model-name>");
 }
 
 /**
- * Print ALL available models from OpenRouter
+ * Print ALL available models from OpenRouter and local Ollama
  */
 async function printAllModels(jsonOutput: boolean, forceUpdate: boolean): Promise<void> {
   let models: any[] = [];
+
+  // Fetch local Ollama models first
+  const ollamaModels = await fetchOllamaModels();
 
   // Check cache for all models
   if (!forceUpdate && existsSync(ALL_MODELS_JSON_PATH)) {
@@ -450,17 +500,44 @@ async function printAllModels(jsonOutput: boolean, forceUpdate: boolean): Promis
 
   // JSON output
   if (jsonOutput) {
+    const allModels = [...ollamaModels, ...models];
     console.log(JSON.stringify({
-      count: models.length,
+      count: allModels.length,
+      localCount: ollamaModels.length,
       lastUpdated: new Date().toISOString().split('T')[0],
-      models: models.map(m => ({
+      models: allModels.map(m => ({
         id: m.id,
         name: m.name,
         context: m.context_length || m.top_provider?.context_length,
-        pricing: m.pricing
+        pricing: m.pricing,
+        isLocal: m.isLocal || false
       }))
     }, null, 2));
     return;
+  }
+
+  // Print local Ollama models first if available
+  if (ollamaModels.length > 0) {
+    console.log(`\n🏠 LOCAL OLLAMA MODELS (${ollamaModels.length} installed):\n`);
+    console.log("  " + "─".repeat(70));
+
+    for (const model of ollamaModels) {
+      const shortId = model.name;
+      const modelId = shortId.length > 40 ? shortId.substring(0, 37) + "..." : shortId;
+      const modelIdPadded = modelId.padEnd(42);
+      const size = model.size ? `${(model.size / 1e9).toFixed(1)}GB` : "N/A";
+      const sizePadded = size.padEnd(12);
+      const params = model.details?.parameter_size || "N/A";
+      const paramsPadded = params.padEnd(8);
+
+      console.log(`    ${modelIdPadded} ${sizePadded} ${paramsPadded}`);
+    }
+    console.log("");
+    console.log("  Use: claudish --model ollama/<model-name>");
+  } else {
+    console.log("\n🏠 LOCAL OLLAMA: Not running or no models installed");
+    console.log("   Start Ollama: ollama serve");
+    console.log("   Pull a model: ollama pull llama3.2");
   }
 
   // Group by provider
@@ -476,7 +553,7 @@ async function printAllModels(jsonOutput: boolean, forceUpdate: boolean): Promis
   // Sort providers alphabetically
   const sortedProviders = [...byProvider.keys()].sort();
 
-  console.log(`\nAll OpenRouter Models (${models.length} total):\n`);
+  console.log(`\n☁️  OPENROUTER MODELS (${models.length} total):\n`);
 
   for (const provider of sortedProviders) {
     const providerModels = byProvider.get(provider)!;
@@ -513,9 +590,10 @@ async function printAllModels(jsonOutput: boolean, forceUpdate: boolean): Promis
   }
 
   console.log("\n");
-  console.log("Use a model: claudish --model <provider/model-id>");
-  console.log("Search:      claudish --search <query>");
-  console.log("Top models:  claudish --top-models");
+  console.log("Use a model:   claudish --model <provider/model-id>");
+  console.log("Local model:   claudish --model ollama/<model-name>");
+  console.log("Search:        claudish --search <query>");
+  console.log("Top models:    claudish --top-models");
 }
 
 /**
@@ -818,7 +896,7 @@ NOTES:
 ENVIRONMENT VARIABLES:
   Claudish automatically loads .env file from current directory.
 
-  OPENROUTER_API_KEY              Required: Your OpenRouter API key
+  OPENROUTER_API_KEY              Required: Your OpenRouter API key (for OpenRouter models)
   CLAUDISH_MODEL                  Default model to use (takes priority)
   ANTHROPIC_MODEL                 Claude Code standard: model to use (fallback)
   CLAUDISH_PORT                   Default port for proxy
@@ -833,6 +911,12 @@ ENVIRONMENT VARIABLES:
   ANTHROPIC_DEFAULT_SONNET_MODEL  Claude Code standard: Sonnet model (fallback)
   ANTHROPIC_DEFAULT_HAIKU_MODEL   Claude Code standard: Haiku model (fallback)
   CLAUDE_CODE_SUBAGENT_MODEL      Claude Code standard: sub-agent model (fallback)
+
+  Local providers (OpenAI-compatible):
+  OLLAMA_BASE_URL                 Ollama server (default: http://localhost:11434)
+  OLLAMA_HOST                     Alias for OLLAMA_BASE_URL (same default)
+  LMSTUDIO_BASE_URL               LM Studio server (default: http://localhost:1234)
+  VLLM_BASE_URL                   vLLM server (default: http://localhost:8000)
 
 EXAMPLES:
   # Interactive mode (default) - shows model selector
@@ -886,6 +970,22 @@ EXAMPLES:
 
   # Verbose mode in single-shot (show [claudish] logs)
   claudish --verbose "analyze code structure"
+
+LOCAL MODELS (Ollama, LM Studio, vLLM):
+  # Use local Ollama model (prefix syntax)
+  claudish --model ollama/llama3.2 "implement feature"
+  claudish --model ollama:codellama "review this code"
+
+  # Use local LM Studio model
+  claudish --model lmstudio/qwen2.5-coder "write tests"
+
+  # Use any OpenAI-compatible endpoint (URL syntax)
+  claudish --model "http://localhost:11434/llama3.2" "task"
+  claudish --model "http://192.168.1.100:8000/mistral" "remote server"
+
+  # Custom Ollama endpoint
+  OLLAMA_BASE_URL=http://192.168.1.50:11434 claudish --model ollama/llama3.2 "task"
+  OLLAMA_HOST=http://192.168.1.50:11434 claudish --model ollama/llama3.2 "task"
 
 AVAILABLE MODELS:
   List all models:     claudish --models

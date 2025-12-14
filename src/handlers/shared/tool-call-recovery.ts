@@ -93,6 +93,23 @@ export function extractToolCallsFromText(text: string): ExtractedToolCall[] {
     }
   }
 
+  // Pattern 2b: Alternative format {"tool": "tool_name", "tool_input": {...}}
+  // Some models (like Qwen) output this format instead
+  const toolInputPattern = /\{\s*"tool"\s*:\s*"([^"]+)"\s*,\s*"tool_input"\s*:\s*(\{[\s\S]*?\})\s*\}/gi;
+  while ((match = toolInputPattern.exec(text)) !== null) {
+    try {
+      const args = JSON.parse(match[2]);
+      extracted.push({
+        name: match[1],
+        arguments: args,
+        source: "json_text",
+      });
+      log(`[ToolRecovery] Extracted tool/tool_input format: ${match[1]}`);
+    } catch (e) {
+      // Continue
+    }
+  }
+
   // Pattern 3: Anthropic-style tool_use blocks in text
   const anthropicPattern = /\{\s*"type"\s*:\s*"tool_use"\s*,\s*"id"\s*:\s*"[^"]*"\s*,\s*"name"\s*:\s*"([^"]+)"\s*,\s*"input"\s*:\s*(\{[\s\S]*?\})\s*\}/gi;
   while ((match = anthropicPattern.exec(text)) !== null) {
@@ -103,6 +120,23 @@ export function extractToolCallsFromText(text: string): ExtractedToolCall[] {
         arguments: args,
         source: "json_text",
       });
+    } catch (e) {
+      // Continue
+    }
+  }
+
+  // Pattern 3b: OpenAI tool_call format in array
+  // [{"type":"tool_call","id":"...","tool_call":{"name":"...","arguments":{...}}}]
+  const openaiArrayPattern = /\{\s*"type"\s*:\s*"tool_call"\s*,\s*"id"\s*:\s*"[^"]*"\s*,\s*"tool_call"\s*:\s*\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"arguments"\s*:\s*(\{[\s\S]*?\})\s*\}\s*\}/gi;
+  while ((match = openaiArrayPattern.exec(text)) !== null) {
+    try {
+      const args = JSON.parse(match[2]);
+      extracted.push({
+        name: match[1],
+        arguments: args,
+        source: "json_text",
+      });
+      log(`[ToolRecovery] Extracted OpenAI tool_call format: ${match[1]}`);
     } catch (e) {
       // Continue
     }
@@ -127,6 +161,131 @@ export function extractToolCallsFromText(text: string): ExtractedToolCall[] {
     }
   }
 
+  // Pattern 5: Natural language tool intent extraction
+  // Matches: "I'll use the Task tool with subagent_type=Explore"
+  // Matches: "I will use the Read tool to read /path/to/file"
+  // Matches: "Let me use the Bash tool to run ls -la"
+  const knownTools = ["Task", "Read", "Write", "Edit", "Bash", "Grep", "Glob", "WebFetch", "WebSearch"];
+  const nlPatterns = [
+    // "I'll use the X tool with param=value" - ends with period, colon, newline, or end
+    /(?:I(?:'ll| will| am going to)|Let me|Going to)\s+use\s+(?:the\s+)?(\w+)\s+tool\s+(?:with\s+)?(.+?)(?:[.:\n]|$)/gi,
+    // "use X tool to do something"
+    /use\s+(?:the\s+)?(\w+)\s+tool\s+(?:to\s+)?(.+?)(?:[.:\n]|$)/gi,
+  ];
+
+  for (const pattern of nlPatterns) {
+    pattern.lastIndex = 0; // Reset regex state
+    while ((match = pattern.exec(text)) !== null) {
+      const toolName = match[1];
+      const paramText = match[2];
+
+      // Only extract if it's a known tool
+      if (!knownTools.some(t => t.toLowerCase() === toolName.toLowerCase())) {
+        continue;
+      }
+
+      // Normalize tool name
+      const normalizedToolName = knownTools.find(t => t.toLowerCase() === toolName.toLowerCase()) || toolName;
+      const args: Record<string, any> = {};
+
+      // Extract key=value pairs
+      const kvPattern = /(\w+)\s*=\s*["']?([^"',\s]+)["']?/g;
+      let kvMatch;
+      while ((kvMatch = kvPattern.exec(paramText)) !== null) {
+        args[kvMatch[1]] = kvMatch[2];
+      }
+
+      // Extract quoted strings as potential file paths or commands
+      const quotedPattern = /["']([^"']+)["']/g;
+      let quotedMatch;
+      const quotedValues: string[] = [];
+      while ((quotedMatch = quotedPattern.exec(paramText)) !== null) {
+        quotedValues.push(quotedMatch[1]);
+      }
+
+      // Tool-specific parameter extraction from natural language
+      if (normalizedToolName === "Task") {
+        // Look for subagent_type mentions
+        if (!args.subagent_type) {
+          const stMatch = paramText.match(/subagent_type\s*[=:]\s*["']?(\w+)["']?/i);
+          if (stMatch) {
+            args.subagent_type = stMatch[1];
+          } else if (/explore|codebase|structure/i.test(paramText)) {
+            args.subagent_type = "Explore";
+          } else if (/plan|architect/i.test(paramText)) {
+            args.subagent_type = "Plan";
+          } else {
+            args.subagent_type = "general-purpose";
+          }
+        }
+        // Extract task intent as prompt
+        if (!args.prompt) {
+          // Use the text after "to" as the prompt
+          const toMatch = paramText.match(/\bto\s+(.+)/i);
+          if (toMatch) {
+            args.prompt = toMatch[1].trim();
+          } else {
+            args.prompt = paramText.trim();
+          }
+        }
+        if (!args.description) {
+          args.description = (args.prompt || paramText).substring(0, 50).trim();
+        }
+      } else if (normalizedToolName === "Read") {
+        // Extract file path
+        if (!args.file_path) {
+          if (quotedValues.length > 0) {
+            args.file_path = quotedValues[0];
+          } else {
+            // Look for path-like strings
+            const pathMatch = paramText.match(/(?:read|file)\s+([\/\w.-]+)/i);
+            if (pathMatch) {
+              args.file_path = pathMatch[1];
+            }
+          }
+        }
+      } else if (normalizedToolName === "Bash") {
+        // Extract command
+        if (!args.command) {
+          if (quotedValues.length > 0) {
+            args.command = quotedValues[0];
+          } else {
+            // Look for "run X" or "execute X"
+            const cmdMatch = paramText.match(/(?:run|execute)\s+(.+)/i);
+            if (cmdMatch) {
+              args.command = cmdMatch[1].trim();
+            }
+          }
+        }
+        if (args.command && !args.description) {
+          args.description = `Run ${args.command.split(" ")[0]} command`;
+        }
+      } else if (normalizedToolName === "Grep" || normalizedToolName === "Glob") {
+        // Extract pattern
+        if (!args.pattern) {
+          if (quotedValues.length > 0) {
+            args.pattern = quotedValues[0];
+          } else {
+            const searchMatch = paramText.match(/(?:search|find|look for)\s+(.+)/i);
+            if (searchMatch) {
+              args.pattern = searchMatch[1].trim();
+            }
+          }
+        }
+      }
+
+      // Only add if we extracted meaningful arguments
+      if (Object.keys(args).length > 0) {
+        extracted.push({
+          name: normalizedToolName,
+          arguments: args,
+          source: "inferred",
+        });
+        log(`[ToolRecovery] Extracted natural language tool intent: ${normalizedToolName} with args: ${JSON.stringify(args)}`);
+      }
+    }
+  }
+
   return extracted;
 }
 
@@ -143,6 +302,31 @@ export function inferMissingParameters(
 
   // Task tool inference
   if (toolName === "Task") {
+    // Valid subagent types
+    const validSubagentTypes = [
+      "general-purpose", "Explore", "Plan", "claude-code-guide",
+      "code-analysis:detective", "feature-dev:code-architect",
+      "feature-dev:code-explorer", "feature-dev:code-reviewer"
+    ];
+
+    // Normalize subagent_type - models often use variations
+    if (inferred.subagent_type) {
+      const st = inferred.subagent_type.toLowerCase();
+      // Map common variations to valid types
+      if (st.includes("explore") || st.includes("codebase") || st.includes("file")) {
+        inferred.subagent_type = "Explore";
+      } else if (st.includes("plan") || st.includes("architect")) {
+        inferred.subagent_type = "Plan";
+      } else if (st.includes("analysis") || st.includes("analyz") || st.includes("config") ||
+                 st.includes("git") || st.includes("test") || st.includes("doc") ||
+                 st.includes("version")) {
+        inferred.subagent_type = "general-purpose";
+      } else if (!validSubagentTypes.includes(inferred.subagent_type)) {
+        log(`[ToolRecovery] Unknown subagent_type "${inferred.subagent_type}", mapping to general-purpose`);
+        inferred.subagent_type = "general-purpose";
+      }
+    }
+
     if (missingParams.includes("subagent_type") && !inferred.subagent_type) {
       // Default to general-purpose if not specified
       inferred.subagent_type = "general-purpose";
@@ -177,8 +361,12 @@ export function inferMissingParameters(
     }
 
     if (missingParams.includes("prompt") && !inferred.prompt) {
-      // Try to use description, task content, or extracted context
-      if (inferred.description && inferred.description !== "Execute task") {
+      // Try to use description, task content, query, or extracted context
+      // Some models use "query" instead of "prompt"
+      if (inferred.query) {
+        inferred.prompt = inferred.query;
+        log(`[ToolRecovery] Mapped query -> prompt: "${inferred.query.substring(0, 50)}..."`);
+      } else if (inferred.description && inferred.description !== "Execute task") {
         inferred.prompt = inferred.description;
       } else if (inferred.task) {
         inferred.prompt = inferred.task;

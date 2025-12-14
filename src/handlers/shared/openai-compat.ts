@@ -66,8 +66,9 @@ export function validateToolArguments(
 
 /**
  * Convert Claude/Anthropic messages to OpenAI format
+ * @param simpleFormat - If true, use simple string content only (for MLX and other basic providers)
  */
-export function convertMessagesToOpenAI(req: any, modelId: string, filterIdentityFn?: (s: string) => string): any[] {
+export function convertMessagesToOpenAI(req: any, modelId: string, filterIdentityFn?: (s: string) => string, simpleFormat = false): any[] {
   const messages: any[] = [];
 
   if (req.system) {
@@ -90,47 +91,67 @@ export function convertMessagesToOpenAI(req: any, modelId: string, filterIdentit
 
   if (req.messages) {
     for (const msg of req.messages) {
-      if (msg.role === "user") processUserMessage(msg, messages);
-      else if (msg.role === "assistant") processAssistantMessage(msg, messages);
+      if (msg.role === "user") processUserMessage(msg, messages, simpleFormat);
+      else if (msg.role === "assistant") processAssistantMessage(msg, messages, simpleFormat);
     }
   }
 
   return messages;
 }
 
-function processUserMessage(msg: any, messages: any[]) {
+function processUserMessage(msg: any, messages: any[], simpleFormat = false) {
   if (Array.isArray(msg.content)) {
+    const textParts: string[] = [];
     const contentParts: any[] = [];
     const toolResults: any[] = [];
     const seen = new Set<string>();
 
     for (const block of msg.content) {
       if (block.type === "text") {
-        contentParts.push({ type: "text", text: block.text });
+        textParts.push(block.text);
+        if (!simpleFormat) {
+          contentParts.push({ type: "text", text: block.text });
+        }
       } else if (block.type === "image") {
-        contentParts.push({
-          type: "image_url",
-          image_url: { url: `data:${block.source.media_type};base64,${block.source.data}` },
-        });
+        if (!simpleFormat) {
+          contentParts.push({
+            type: "image_url",
+            image_url: { url: `data:${block.source.media_type};base64,${block.source.data}` },
+          });
+        }
+        // Skip images in simple format - MLX doesn't support vision
       } else if (block.type === "tool_result") {
         if (seen.has(block.tool_use_id)) continue;
         seen.add(block.tool_use_id);
-        toolResults.push({
-          role: "tool",
-          content: typeof block.content === "string" ? block.content : JSON.stringify(block.content),
-          tool_call_id: block.tool_use_id,
-        });
+        const resultContent = typeof block.content === "string" ? block.content : JSON.stringify(block.content);
+        if (simpleFormat) {
+          // In simple format, include tool results as text in user message
+          textParts.push(`[Tool Result]: ${resultContent}`);
+        } else {
+          toolResults.push({
+            role: "tool",
+            content: resultContent,
+            tool_call_id: block.tool_use_id,
+          });
+        }
       }
     }
 
-    if (toolResults.length) messages.push(...toolResults);
-    if (contentParts.length) messages.push({ role: "user", content: contentParts });
+    if (simpleFormat) {
+      // Simple format: just concatenate all text
+      if (textParts.length) {
+        messages.push({ role: "user", content: textParts.join("\n\n") });
+      }
+    } else {
+      if (toolResults.length) messages.push(...toolResults);
+      if (contentParts.length) messages.push({ role: "user", content: contentParts });
+    }
   } else {
     messages.push({ role: "user", content: msg.content });
   }
 }
 
-function processAssistantMessage(msg: any, messages: any[]) {
+function processAssistantMessage(msg: any, messages: any[], simpleFormat = false) {
   if (Array.isArray(msg.content)) {
     const strings: string[] = [];
     const toolCalls: any[] = [];
@@ -142,19 +163,31 @@ function processAssistantMessage(msg: any, messages: any[]) {
       } else if (block.type === "tool_use") {
         if (seen.has(block.id)) continue;
         seen.add(block.id);
-        toolCalls.push({
-          id: block.id,
-          type: "function",
-          function: { name: block.name, arguments: JSON.stringify(block.input) },
-        });
+        if (simpleFormat) {
+          // In simple format, include tool calls as text
+          strings.push(`[Tool Call: ${block.name}]: ${JSON.stringify(block.input)}`);
+        } else {
+          toolCalls.push({
+            id: block.id,
+            type: "function",
+            function: { name: block.name, arguments: JSON.stringify(block.input) },
+          });
+        }
       }
     }
 
-    const m: any = { role: "assistant" };
-    if (strings.length) m.content = strings.join(" ");
-    else if (toolCalls.length) m.content = null;
-    if (toolCalls.length) m.tool_calls = toolCalls;
-    if (m.content !== undefined || m.tool_calls) messages.push(m);
+    if (simpleFormat) {
+      // Simple format: just string content, no tool_calls
+      if (strings.length) {
+        messages.push({ role: "assistant", content: strings.join("\n") });
+      }
+    } else {
+      const m: any = { role: "assistant" };
+      if (strings.length) m.content = strings.join(" ");
+      else if (toolCalls.length) m.content = null;
+      if (toolCalls.length) m.tool_calls = toolCalls;
+      if (m.content !== undefined || m.tool_calls) messages.push(m);
+    }
   } else {
     messages.push({ role: "assistant", content: msg.content });
   }
@@ -436,6 +469,13 @@ export function createStreamingResponseHandler(
                 }
 
                 const delta = chunk.choices?.[0]?.delta;
+                const finishReason = chunk.choices?.[0]?.finish_reason;
+
+                // Debug: Log chunk details for troubleshooting early termination
+                if (delta?.content || finishReason) {
+                  log(`[Streaming] Chunk: content=${delta?.content?.length || 0} chars, finish_reason=${finishReason || 'null'}`);
+                }
+
                 if (delta) {
                   if (middlewareManager) {
                     await middlewareManager.afterStreamChunk({
@@ -448,18 +488,42 @@ export function createStreamingResponseHandler(
 
                   // Handle text content
                   const txt = delta.content || "";
+                  log(`[Streaming] Text chunk: "${txt.substring(0, 30).replace(/\n/g, '\\n')}" (${txt.length} chars)`);
                   if (txt) {
                     state.lastActivity = Date.now();
                     const res = adapter.processTextContent(txt, "");
+                    log(`[Streaming] After adapter: "${res.cleanedText.substring(0, 30).replace(/\n/g, '\\n')}" (${res.cleanedText.length} chars, transformed=${res.wasTransformed})`);
+
+                    // Debug: Log text processing
+                    if (txt.length > 0 && res.cleanedText.length === 0) {
+                      log(`[Streaming] Text filtered out by adapter: "${txt.substring(0, 50)}"`);
+                    }
+
                     if (res.cleanedText) {
                       // Accumulate text for potential tool call extraction
                       state.accumulatedText += res.cleanedText;
 
-                      // Check if text contains tool call patterns (e.g., Qwen-style <function=...>)
-                      // If so, don't send as text - we'll convert to tool calls later
-                      const hasToolPattern = /<function=[^>]+>/.test(state.accumulatedText);
+                      // Check if text contains STRUCTURED tool call patterns that we should hold back
+                      // Only hold back for patterns we can actually parse (XML, JSON), not natural language
+                      // Natural language patterns are extracted at finalization, not held back
+                      const hasStructuredToolPattern = (
+                        // Qwen XML-style: <function=ToolName>
+                        /<function=[^>]+>/.test(state.accumulatedText) ||
+                        // JSON tool call in text: {"name": "Task", "arguments":
+                        /\{\s*"(?:name|tool)"\s*:\s*"(?:Task|Read|Write|Edit|Bash|Grep|Glob)"/i.test(state.accumulatedText) ||
+                        // XML tool_call tags: <tool_call>
+                        /<tool_call>/.test(state.accumulatedText)
+                      );
 
-                      if (!hasToolPattern) {
+                      // Only hold back if we have a structured pattern AND haven't accumulated too much
+                      // (if we've accumulated > 1000 chars without a complete pattern, release the text)
+                      const shouldHoldBack = hasStructuredToolPattern && state.accumulatedText.length < 1000;
+
+                      if (shouldHoldBack) {
+                        log(`[Streaming] Text held back (structured tool pattern): ${state.accumulatedText.length} chars accumulated`);
+                      }
+
+                      if (!shouldHoldBack) {
                         if (!state.textStarted) {
                           state.textIdx = state.curIdx++;
                           send("content_block_start", {
@@ -468,6 +532,7 @@ export function createStreamingResponseHandler(
                             content_block: { type: "text", text: "" },
                           });
                           state.textStarted = true;
+                          log(`[Streaming] Started text block at index ${state.textIdx}`);
                         }
                         send("content_block_delta", {
                           type: "content_block_delta",

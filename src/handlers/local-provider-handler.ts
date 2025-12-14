@@ -15,6 +15,7 @@ import { log, logStructured } from "../logger.js";
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Agent } from "undici";
 import {
   convertMessagesToOpenAI,
   convertToolsToOpenAI,
@@ -22,6 +23,15 @@ import {
   createStreamingResponseHandler,
   estimateTokens,
 } from "./shared/openai-compat.js";
+
+// Create a custom undici agent with long timeouts for local LLM inference
+// Default undici headersTimeout is 30s which is too short for prompt processing
+const localProviderAgent = new Agent({
+  headersTimeout: 600000,  // 10 minutes for headers (prompt processing time)
+  bodyTimeout: 600000,     // 10 minutes for body (generation time)
+  keepAliveTimeout: 30000, // 30 seconds keepalive
+  keepAliveMaxTimeout: 600000,
+});
 
 export interface LocalProviderOptions {
   summarizeTools?: boolean; // Summarize tool descriptions to reduce prompt size
@@ -50,6 +60,17 @@ export class LocalProviderHandler implements ModelHandler {
     this.middlewareManager.initialize().catch((err) => {
       log(`[LocalProvider:${provider.name}] Middleware init error: ${err}`);
     });
+
+    // Check for env var override of context window (useful when API doesn't expose it)
+    const envContextWindow = process.env.CLAUDISH_CONTEXT_WINDOW;
+    if (envContextWindow) {
+      const parsed = parseInt(envContextWindow, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        this.contextWindow = parsed;
+        log(`[LocalProvider:${provider.name}] Context window from env: ${this.contextWindow}`);
+      }
+    }
+
     // Write initial token file so status line has data from the start
     this.writeTokenFile(0, 0);
     if (options.summarizeTools) {
@@ -63,8 +84,10 @@ export class LocalProviderHandler implements ModelHandler {
   async checkHealth(): Promise<boolean> {
     if (this.healthChecked) return this.isHealthy;
 
+    // Try Ollama-specific health check first
     try {
-      const healthUrl = `${this.provider.baseUrl}/api/tags`; // Ollama-specific health check
+      const healthUrl = `${this.provider.baseUrl}/api/tags`;
+      log(`[LocalProvider:${this.provider.name}] Trying health check: ${healthUrl}`);
       const response = await fetch(healthUrl, {
         method: "GET",
         signal: AbortSignal.timeout(5000),
@@ -73,28 +96,36 @@ export class LocalProviderHandler implements ModelHandler {
       if (response.ok) {
         this.isHealthy = true;
         this.healthChecked = true;
-        log(`[LocalProvider:${this.provider.name}] Health check passed`);
+        log(`[LocalProvider:${this.provider.name}] Health check passed (/api/tags)`);
         return true;
       }
-    } catch (e) {
-      // Try alternative health check (generic OpenAI-compatible)
-      try {
-        const modelsUrl = `${this.provider.baseUrl}/v1/models`;
-        const response = await fetch(modelsUrl, {
-          method: "GET",
-          signal: AbortSignal.timeout(5000),
-        });
-        if (response.ok) {
-          this.isHealthy = true;
-          this.healthChecked = true;
-          log(`[LocalProvider:${this.provider.name}] Health check passed (v1/models)`);
-          return true;
-        }
-      } catch (e2) {}
+      log(`[LocalProvider:${this.provider.name}] /api/tags returned ${response.status}, trying /v1/models`);
+    } catch (e: any) {
+      log(`[LocalProvider:${this.provider.name}] /api/tags failed: ${e?.message || e}, trying /v1/models`);
+    }
+
+    // Try generic OpenAI-compatible health check (works for MLX, LM Studio, vLLM, etc.)
+    try {
+      const modelsUrl = `${this.provider.baseUrl}/v1/models`;
+      log(`[LocalProvider:${this.provider.name}] Trying health check: ${modelsUrl}`);
+      const response = await fetch(modelsUrl, {
+        method: "GET",
+        signal: AbortSignal.timeout(5000),
+      });
+      if (response.ok) {
+        this.isHealthy = true;
+        this.healthChecked = true;
+        log(`[LocalProvider:${this.provider.name}] Health check passed (/v1/models)`);
+        return true;
+      }
+      log(`[LocalProvider:${this.provider.name}] /v1/models returned ${response.status}`);
+    } catch (e: any) {
+      log(`[LocalProvider:${this.provider.name}] /v1/models failed: ${e?.message || e}`);
     }
 
     this.healthChecked = true;
     this.isHealthy = false;
+    log(`[LocalProvider:${this.provider.name}] Health check FAILED - provider not available`);
     return false;
   }
 
@@ -210,15 +241,18 @@ export class LocalProviderHandler implements ModelHandler {
    */
   private writeTokenFile(input: number, output: number): void {
     try {
-      this.sessionInputTokens += input;
-      this.sessionOutputTokens += output;
+      // For local models, prompt_tokens represents the FULL conversation context each request
+      // (not incremental), so we use the latest value directly instead of accumulating.
+      // Output tokens ARE incremental (new tokens generated), so we accumulate those.
+      if (input > 0) {
+        this.sessionInputTokens = input; // Use latest (already includes full context)
+      }
+      this.sessionOutputTokens += output; // Accumulate outputs
       const sessionTotal = this.sessionInputTokens + this.sessionOutputTokens;
 
-      // For local models, calculate context usage based on both input AND output tokens
-      // Both consume context window space
-      const used = input + output;
+      // Calculate context usage: input (full context) + accumulated outputs
       const leftPct = this.contextWindow > 0
-        ? Math.max(0, Math.min(100, Math.round(((this.contextWindow - used) / this.contextWindow) * 100)))
+        ? Math.max(0, Math.min(100, Math.round(((this.contextWindow - sessionTotal) / this.contextWindow) * 100)))
         : 100;
 
       const data = {
@@ -228,9 +262,6 @@ export class LocalProviderHandler implements ModelHandler {
         total_cost: 0, // Local models are free
         context_window: this.contextWindow,
         context_left_percent: leftPct,
-        // Also include last request info for debugging
-        last_request_input: input,
-        last_request_output: output,
         updated_at: Date.now(),
       };
 
@@ -266,7 +297,10 @@ export class LocalProviderHandler implements ModelHandler {
 
     // Transform request
     const { claudeRequest, droppedParams } = transformOpenAIToClaude(payload);
-    const messages = convertMessagesToOpenAI(claudeRequest, target, filterIdentity);
+    // Use simple format for providers that don't support complex message structures
+    // MLX doesn't handle array content or tool role messages
+    const useSimpleFormat = this.provider.name === "mlx";
+    const messages = convertMessagesToOpenAI(claudeRequest, target, filterIdentity, useSimpleFormat);
     const tools = convertToolsToOpenAI(claudeRequest, this.options.summarizeTools);
 
     // Check capability: strip tools if not supported
@@ -338,16 +372,105 @@ If you cannot use structured tool_calls, format as JSON:
       messages[0].content += guidance;
     }
 
+    // Detect model family for optimized sampling parameters
+    const modelLower = target.toLowerCase();
+    const isQwenModel = modelLower.includes("qwen");
+    const isDeepSeekModel = modelLower.includes("deepseek");
+    const isLlamaModel = modelLower.includes("llama");
+    const isMistralModel = modelLower.includes("mistral");
+
+    // Hardcoded recommended sampling parameters per model family
+    // These are optimized defaults - no env vars needed
+    const getSamplingParams = () => {
+      if (isQwenModel) {
+        // Qwen3 Instruct recommended settings
+        // Source: Qwen team + community testing for thinking mode stability
+        return {
+          temperature: 0.7,
+          top_p: 0.8,
+          top_k: 20,
+          min_p: 0.0,
+          repetition_penalty: 1.05,  // Slight penalty helps with Qwen repetition
+        };
+      }
+      if (isDeepSeekModel) {
+        // DeepSeek Coder recommended settings
+        return {
+          temperature: 0.6,
+          top_p: 0.95,
+          top_k: 40,
+          min_p: 0.0,
+          repetition_penalty: 1.0,
+        };
+      }
+      if (isLlamaModel) {
+        // Llama 3.x recommended settings
+        return {
+          temperature: 0.7,
+          top_p: 0.9,
+          top_k: 40,
+          min_p: 0.05,
+          repetition_penalty: 1.1,
+        };
+      }
+      if (isMistralModel) {
+        // Mistral recommended settings
+        return {
+          temperature: 0.7,
+          top_p: 0.9,
+          top_k: 50,
+          min_p: 0.0,
+          repetition_penalty: 1.0,
+        };
+      }
+      // Generic defaults for other models
+      return {
+        temperature: 0.7,
+        top_p: 0.9,
+        top_k: 40,
+        min_p: 0.0,
+        repetition_penalty: 1.0,
+      };
+    };
+
+    const samplingParams = getSamplingParams();
+    log(`[LocalProvider:${this.provider.name}] Using sampling params: temp=${samplingParams.temperature}, top_p=${samplingParams.top_p}, top_k=${samplingParams.top_k}`);
+
+    // For local providers, ensure max_tokens is set to a reasonable value
+    // Some local providers have very low defaults or ignore Claude's max_tokens
+    // Use the larger of: Claude's request, 8192 minimum for meaningful responses
+    const requestedMaxTokens = claudeRequest.max_tokens || 4096;
+    const effectiveMaxTokens = Math.max(requestedMaxTokens, 8192);
+
+    log(`[LocalProvider:${this.provider.name}] max_tokens: requested=${requestedMaxTokens}, effective=${effectiveMaxTokens}`);
+
     // Build OpenAI-compatible payload
     const openAIPayload: any = {
       model: target,
       messages,
-      temperature: claudeRequest.temperature ?? 1,
+      // Sampling params - optimized per model family
+      // Critical to avoid infinite loops with Qwen3 thinking mode
+      temperature: samplingParams.temperature,
+      top_p: samplingParams.top_p,
+      top_k: samplingParams.top_k,
+      min_p: samplingParams.min_p,
+      repetition_penalty: samplingParams.repetition_penalty > 1 ? samplingParams.repetition_penalty : undefined,
       stream: this.provider.capabilities.supportsStreaming,
-      max_tokens: claudeRequest.max_tokens,
+      max_tokens: effectiveMaxTokens,
       tools: finalTools.length > 0 ? finalTools : undefined,
       stream_options: this.provider.capabilities.supportsStreaming ? { include_usage: true } : undefined,
+      // Note: Removed stop sequences - they can cause premature termination
+      // The chat template should handle turn boundaries naturally
     };
+
+    // For Qwen models: add /no_think to disable thinking mode if causing issues
+    // This can be toggled by setting CLAUDISH_QWEN_NO_THINK=1
+    if (isQwenModel && process.env.CLAUDISH_QWEN_NO_THINK === "1") {
+      if (messages.length > 0 && messages[0].role === "system") {
+        messages[0].content = "/no_think\n\n" + messages[0].content;
+        log(`[LocalProvider:${this.provider.name}] Added /no_think to disable Qwen thinking mode`);
+      }
+    }
 
     // For Ollama: set context window size to ensure tools aren't truncated
     // This is critical - Ollama defaults to 2048 and silently truncates, losing tool definitions!
@@ -373,6 +496,13 @@ If you cannot use structured tool_calls, format as JSON:
     if (typeof adapter.reset === "function") adapter.reset();
     adapter.prepareRequest(openAIPayload, claudeRequest);
 
+    // Strip parameters that local providers don't support
+    // These are cloud-API-specific (e.g., Qwen API's enable_thinking, thinking_budget)
+    // LM Studio, Ollama, etc. don't understand these and may behave unexpectedly
+    delete openAIPayload.enable_thinking;
+    delete openAIPayload.thinking_budget;
+    delete openAIPayload.thinking;
+
     // Apply middleware
     await this.middlewareManager.beforeRequest({
       modelId: target,
@@ -384,24 +514,34 @@ If you cannot use structured tool_calls, format as JSON:
     // Make request to local provider
     const apiUrl = `${this.provider.baseUrl}${this.provider.apiPath}`;
 
-    // Debug: Log tool count and payload size
-    log(`[LocalProvider:${this.provider.name}] Tools: ${openAIPayload.tools?.length || 0}, Messages: ${messages.length}`);
-    if (openAIPayload.tools?.length > 0) {
-      log(`[LocalProvider:${this.provider.name}] First tool: ${openAIPayload.tools[0]?.function?.name || 'unknown'}`);
-    }
+    // Debug logging (only to file, not console)
+    log(`[LocalProvider:${this.provider.name}] Request: ${openAIPayload.tools?.length || 0} tools, ${messages.length} messages`);
+    log(`[LocalProvider:${this.provider.name}] Endpoint: ${apiUrl}`);
 
-    console.log(`[LocalProvider:${this.provider.name}] ===== ABOUT TO FETCH from ${apiUrl} =====`);
-    log(`[LocalProvider:${this.provider.name}] ===== ABOUT TO FETCH from ${apiUrl} =====`);
     try {
+      // Use a long timeout for local providers - they need time for prompt processing
+      // before sending response headers. Default undici timeout is ~30s which is too short
+      // for large prompts on local models.
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        log(`[LocalProvider:${this.provider.name}] Request timeout (10 min) - aborting`);
+        controller.abort();
+      }, 600000); // 10 minutes - local models can be slow
+
       const response = await fetch(apiUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(openAIPayload),
+        signal: controller.signal,
+        // @ts-ignore - Use custom undici agent with long timeouts for local LLM inference
+        dispatcher: localProviderAgent,
       });
 
-      log(`[LocalProvider:${this.provider.name}] ===== FETCH COMPLETED, status: ${response.status} =====`);
+      clearTimeout(timeoutId);
+
+      log(`[LocalProvider:${this.provider.name}] Response status: ${response.status}`);
       if (!response.ok) {
         const errorBody = await response.text();
         log(`[LocalProvider:${this.provider.name}] ERROR: ${errorBody.slice(0, 200)}`);
@@ -416,7 +556,6 @@ If you cannot use structured tool_calls, format as JSON:
       // Handle streaming response
       log(`[LocalProvider:${this.provider.name}] Streaming: ${openAIPayload.stream}`);
       if (openAIPayload.stream) {
-        log(`[LocalProvider:${this.provider.name}] ===== ENTERING STREAMING HANDLER =====`);
         return createStreamingResponseHandler(
           c,
           response,

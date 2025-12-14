@@ -1,18 +1,46 @@
 import { BaseModelAdapter, AdapterResult } from "./base-adapter";
 import { log } from "../logger";
 
+// Qwen special tokens that should be stripped from output
+const QWEN_SPECIAL_TOKENS = [
+  "<|im_start|>",
+  "<|im_end|>",
+  "<|endoftext|>",
+  "<|end|>",
+  "assistant\n", // Role marker that sometimes leaks
+];
+
 export class QwenAdapter extends BaseModelAdapter {
   processTextContent(
     textContent: string,
     accumulatedText: string
   ): AdapterResult {
-    // Qwen models return standard content
-    // However, some newer models might wrap thinking in <think> tags which we might want to handle
-    // For now, we pass through as is, similar to OpenAI
+    // Strip Qwen special tokens that may leak through
+    // This can happen when the model gets confused and outputs its chat template
+    let cleanedText = textContent;
+    for (const token of QWEN_SPECIAL_TOKENS) {
+      cleanedText = cleanedText.replaceAll(token, "");
+    }
+
+    // Also handle partial tokens at chunk boundaries
+    // e.g., "<|im_" at the end of one chunk and "start|>" at the beginning of next
+    cleanedText = cleanedText.replace(/<\|[a-z_]*$/i, ""); // Partial at end
+    cleanedText = cleanedText.replace(/^[a-z_]*\|>/i, ""); // Partial at start
+
+    const wasTransformed = cleanedText !== textContent;
+    if (wasTransformed && cleanedText.length === 0) {
+      // Entire chunk was special tokens, skip it
+      return {
+        cleanedText: "",
+        extractedToolCalls: [],
+        wasTransformed: true,
+      };
+    }
+
     return {
-      cleanedText: textContent,
+      cleanedText,
       extractedToolCalls: [],
-      wasTransformed: false,
+      wasTransformed,
     };
   }
 
@@ -37,7 +65,8 @@ export class QwenAdapter extends BaseModelAdapter {
   }
 
   shouldHandle(modelId: string): boolean {
-    return modelId.includes("qwen") || modelId.includes("alibaba");
+    const lower = modelId.toLowerCase();
+    return lower.includes("qwen") || lower.includes("alibaba");
   }
 
   getName(): string {

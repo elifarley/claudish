@@ -51,7 +51,7 @@ const getProviders = (): LocalProvider[] => [
     baseUrl: process.env.LMSTUDIO_BASE_URL || "http://localhost:1234",
     apiPath: "/v1/chat/completions",
     envVar: "LMSTUDIO_BASE_URL",
-    prefixes: ["lmstudio/", "lmstudio:"],
+    prefixes: ["lmstudio/", "lmstudio:", "mlstudio/", "mlstudio:"],  // mlstudio alias for common typo
     capabilities: {
       supportsTools: true,
       supportsVision: false,
@@ -67,6 +67,21 @@ const getProviders = (): LocalProvider[] => [
     prefixes: ["vllm/", "vllm:"],
     capabilities: {
       supportsTools: true,
+      supportsVision: false,
+      supportsStreaming: true,
+      supportsJsonMode: true,
+    },
+  },
+  {
+    name: "mlx",
+    baseUrl: process.env.MLX_BASE_URL || "http://127.0.0.1:8080",
+    apiPath: "/v1/chat/completions",
+    envVar: "MLX_BASE_URL",
+    prefixes: ["mlx/", "mlx:"],
+    capabilities: {
+      // MLX server's tool parsing is fragile with Qwen models
+      // Disable native tools - claudish will extract tool calls from text instead
+      supportsTools: false,
       supportsVision: false,
       supportsStreaming: true,
       supportsJsonMode: true,

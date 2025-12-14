@@ -178,13 +178,15 @@ export async function runClaudeWithProxy(
     }
   }
 
-  // Check if this is a local model (ollama/, lmstudio/, vllm/, or http:// URL)
+  // Check if this is a local model (ollama/, lmstudio/, vllm/, mlx/, or http:// URL)
   const isLocalModel = modelId.startsWith("ollama/") ||
     modelId.startsWith("ollama:") ||
     modelId.startsWith("lmstudio/") ||
     modelId.startsWith("lmstudio:") ||
     modelId.startsWith("vllm/") ||
     modelId.startsWith("vllm:") ||
+    modelId.startsWith("mlx/") ||
+    modelId.startsWith("mlx:") ||
     modelId.startsWith("http://") ||
     modelId.startsWith("https://");
 

@@ -1,7 +1,7 @@
 {
   "name": "claudish",
-  "version": "2.11.0",
-  "description": "Run Claude Code with any OpenRouter model - CLI tool and MCP server",
+  "version": "3.0.0",
+  "description": "Run Claude Code with any model - OpenRouter, Ollama, LM Studio & local models",
   "type": "module",
   "main": "./dist/index.js",
   "bin": {
@@ -36,11 +36,15 @@
     "@modelcontextprotocol/sdk": "^1.22.0",
     "dotenv": "^17.2.3",
     "hono": "^4.10.6",
+    "undici": "^7.16.0",
     "zod": "^4.1.13"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@types/bun": "latest",
+    "@types/jest": "^30.0.0",
+    "jest": "^30.2.0",
+    "jest-environment-node": "^30.2.0",
     "typescript": "^5.9.3"
   },
   "files": [

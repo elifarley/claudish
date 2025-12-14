@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 
-console.log("===== CLAUDISH FRESH START - CODE UPDATED =====");
-
-// Load .env file before anything else
+// Load .env file before anything else (quiet mode to suppress verbose output)
 import { config } from "dotenv";
-config(); // Loads .env from current working directory
+config({ quiet: true }); // Loads .env from current working directory
 
 // Check for MCP mode before loading heavy dependencies
 const isMcpMode = process.argv.includes("--mcp");
